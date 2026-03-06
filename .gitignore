@@ -3,3 +3,6 @@ master.json
 .idea/
 __pycache__/
 *.pyc
+dist/
+build/
+*.spec

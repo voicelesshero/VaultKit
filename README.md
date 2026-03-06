@@ -42,6 +42,18 @@ A secure desktop password manager built with Python and Tkinter.
 
 
 
+\## Standalone Executable
+
+A prebuilt Windows executable is available in the dist/ folder.
+
+No Python installation required — just run main.exe.
+
+Note: data.bin and master.json will be created in the same folder as the exe.
+
+Keep these files alongside the exe to retain your saved passwords.
+
+
+
 \## Notes
 
 \- Your password data is stored locally in data.bin (encrypted)
