@@ -93,7 +93,8 @@ def open_medication_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
     form.resizable(False, False)
 
     fields = [
-        ("Medication Name", "med_name"),
+        ("Brand Name", "brand_name"),
+        ("Generic Name", "generic_name"),
         ("Dosage", "dosage"),
         ("Frequency", "frequency"),
         ("Prescribing Doctor", "doctor"),
@@ -136,11 +137,11 @@ def open_medication_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
             else:
                 data[key] = widget.get()
 
-        if not data["med_name"]:
-            messagebox.showerror("Error", "Medication name is required.")
+        if not data["brand_name"] and not data["generic_name"]:
+            messagebox.showerror("Error", "At least one medication name is required.")
             return
 
-        entry_key = entry_id if is_edit else f"medication_{data['med_name'].lower().replace(' ', '_')}"
+        entry_key = entry_id if is_edit else f"medication_{data['brand_name'].lower().replace(' ', '_') or data['generic_name'].lower().replace(' ', '_')}"
 
         if is_edit:
             update_entry(cipher, entry_key, data)
