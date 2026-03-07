@@ -15,6 +15,9 @@ from emergency import open_emergency_form
 import threading
 from categories import open_category_view
 from session import SessionManager
+from hibp import check_and_notify
+
+
 
 ph = PasswordHasher()
 
@@ -332,6 +335,11 @@ search_btn.grid(row=1, column=2, sticky="ew", padx=(8, 0), ipady=5)
 gen_btn = Button(text="Generate", bg=BTN_ACCENT, fg=BTN_FG, relief="flat", font=FONT_BOLD,
                  activebackground=BTN_BG, activeforeground=BTN_FG, cursor="hand2", command=generate_password)
 gen_btn.grid(row=3, column=2, sticky="ew", padx=(8, 0), ipady=5)
+
+hibp_btn = Button(text="Check Breach", bg="#8e44ad", fg=BTN_FG, relief="flat", font=FONT_BOLD,
+                  activebackground="#7d3c98", activeforeground=BTN_FG, cursor="hand2",
+                  command=lambda: check_and_notify(password_entry.get()))
+hibp_btn.grid(row=4, column=2, sticky="ew", padx=(8, 0), ipady=5)
 
 add_btn = Button(text="Save", bg=BTN_BG, fg=BTN_FG, relief="flat", font=FONT_BOLD,
                  activebackground=BTN_ACCENT, activeforeground=BTN_FG, cursor="hand2", command=save)
