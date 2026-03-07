@@ -10,6 +10,8 @@ import sys
 from cryptography.fernet import Fernet
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
+from vault import add_entry, get_entry, update_entry, delete_entry, get_all_entries, get_entries_by_type, load_vault, save_vault
+
 
 ph = PasswordHasher()
 
@@ -119,22 +121,12 @@ def save():
     website = website_entry.get()
     email = email_entry.get()
     password = password_entry.get()
-    new_data = {website: {"email": email, "password": password}}
 
     if len(website) == 0 or len(password) == 0:
         messagebox.showinfo(title="ERROR", message="Please make sure you haven't left any fields empty.")
         return
 
-    try:
-        with open("data.bin", "rb") as f:
-            data = decrypt_data(f.read())
-    except FileNotFoundError:
-        data = {}
-
-    data.update(new_data)
-
-    with open("data.bin", "wb") as f:
-        f.write(encrypt_data(data))
+    add_entry(cipher, "password", website, {"email": email, "password": password})
 
     website_entry.delete(0, END)
     email_entry.delete(0, END)
@@ -143,21 +135,15 @@ def save():
 # ---------------------------- SEARCH / EDIT / DELETE ------------------------------- #
 def find_password():
     website = website_entry.get()
-    try:
-        with open("data.bin", "rb") as f:
-            data = decrypt_data(f.read())
-    except FileNotFoundError:
-        messagebox.showinfo(title="ERROR", message="No password file found.")
-        return
+    entry = get_entry(cipher, website)
 
-    if website not in data:
+    if not entry:
         messagebox.showinfo(title="ERROR", message="No data for this website.")
         return
 
-    email = data[website]["email"]
-    password = data[website]["password"]
+    email = entry.get("email", "")
+    password = entry.get("password", "")
 
-    # --- Result dialog with Edit / Delete / Cancel ---
     dialog = Toplevel(window)
     dialog.title(website)
     dialog.config(padx=30, pady=30, bg=BG_COLOR)
@@ -171,16 +157,16 @@ def find_password():
            cursor="hand2", command=lambda: [pyperclip.copy(password), messagebox.showinfo("Copied", "Password copied to clipboard!")]).grid(row=3, column=0, columnspan=3, sticky="ew", ipady=4, pady=(0, 8))
 
     Button(dialog, text="Edit", bg=BTN_ACCENT, fg=BTN_FG, relief="flat", font=FONT_BOLD,
-           cursor="hand2", command=lambda: edit_entry(dialog, website, email, password)).grid(row=4, column=0, padx=(0, 8), ipady=4, sticky="ew")
+           cursor="hand2", command=lambda: edit_entry_dialog(dialog, website, email, password)).grid(row=4, column=0, padx=(0, 8), ipady=4, sticky="ew")
 
     Button(dialog, text="Delete", bg="#c0392b", fg=BTN_FG, relief="flat", font=FONT_BOLD,
-           cursor="hand2", command=lambda: delete_entry(dialog, website)).grid(row=4, column=1, padx=(0, 8), ipady=4, sticky="ew")
+           cursor="hand2", command=lambda: delete_entry_dialog(dialog, website)).grid(row=4, column=1, padx=(0, 8), ipady=4, sticky="ew")
 
     Button(dialog, text="Cancel", bg=ENTRY_BG, fg=LABEL_FG, relief="flat", font=FONT_BOLD,
            cursor="hand2", command=dialog.destroy).grid(row=4, column=2, ipady=4, sticky="ew")
 
 
-def edit_entry(parent, website, current_email, current_password):
+def edit_entry_dialog(parent, website, current_email, current_password):
     parent.destroy()
 
     edit_win = Toplevel(window)
@@ -200,40 +186,20 @@ def edit_entry(parent, website, current_email, current_password):
     new_password.grid(row=1, column=1, ipady=5)
 
     def save_edit():
-        try:
-            with open("data.bin", "rb") as f:
-                data = decrypt_data(f.read())
-        except FileNotFoundError:
-            data = {}
-
-        data[website] = {"email": new_email.get(), "password": new_password.get()}
-
-        with open("data.bin", "wb") as f:
-            f.write(encrypt_data(data))
-
+        update_entry(cipher, website, {"email": new_email.get(), "password": new_password.get()})
         messagebox.showinfo("Updated", f"{website} has been updated.")
         edit_win.destroy()
 
     Button(edit_win, text="Save Changes", bg=BTN_BG, fg=BTN_FG, relief="flat", font=FONT_BOLD,
            cursor="hand2", command=save_edit).grid(row=2, column=0, columnspan=2, sticky="ew", pady=(16, 0), ipady=6)
 
-def delete_entry(parent, website):
+def delete_entry_dialog(parent, website):
     parent.destroy()
     confirm = messagebox.askyesno("Delete", f"Are you sure you want to delete {website}? This cannot be undone.")
     if not confirm:
         return
-
-    try:
-        with open("data.bin", "rb") as f:
-            data = decrypt_data(f.read())
-    except FileNotFoundError:
-        return
-
-    if website in data:
-        del data[website]
-        with open("data.bin", "wb") as f:
-            f.write(encrypt_data(data))
-        messagebox.showinfo("Deleted", f"{website} has been removed.")
+    delete_entry(cipher, website)
+    messagebox.showinfo("Deleted", f"{website} has been removed.")
 
 # ---------------------------- UI SETUP ------------------------------- #
 window = Tk()
