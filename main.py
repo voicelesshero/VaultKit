@@ -251,7 +251,7 @@ def delete_entry_dialog(parent, website):
 
 # ---------------------------- UI SETUP ------------------------------- #
 window = Tk()
-window.title("Password Manager")
+window.title("Vault Kit")
 window.config(padx=40, pady=40, bg=BG_COLOR)
 window.withdraw()
 
