@@ -65,7 +65,7 @@ def open_credit_card_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG
             messagebox.showerror("Error", "Card label is required.")
             return
 
-        entry_key = entry_id if is_edit else f"card_{data['label'].lower().replace(' ', '_')}"
+        entry_key = entry_id if is_edit else data['label']
 
         if is_edit:
             update_entry(cipher, entry_key, data)

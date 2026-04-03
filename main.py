@@ -10,7 +10,7 @@ import sys
 from cryptography.fernet import Fernet
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
-from vault import add_entry, get_entry, update_entry, delete_entry, get_all_entries, get_entries_by_type, load_vault, save_vault
+from vault import add_entry, get_entry, update_entry, delete_entry, get_all_entries, get_entries_by_type, load_vault, setup_vault, search_vault
 import threading
 from categories import open_category_view
 from session import SessionManager
@@ -79,6 +79,7 @@ def check_master_password():
             return False
 
         cipher = Fernet(make_key(entered))
+        load_vault(cipher)
         return True
 
     except FileNotFoundError:
@@ -98,6 +99,7 @@ def check_master_password():
             json.dump({"master": hash_password(new_pass)}, f)
 
         cipher = Fernet(make_key(new_pass))
+        setup_vault(cipher, hash_password(new_pass))
         messagebox.showinfo("Success", "Master password set. Welcome!")
         return True
 

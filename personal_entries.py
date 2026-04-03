@@ -56,7 +56,7 @@ def open_note_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, BTN_B
             messagebox.showerror("Error", "Title is required.")
             return
 
-        entry_key = entry_id if is_edit else f"note_{data['title'].lower().replace(' ', '_')}"
+        entry_key = entry_id if is_edit else data['title']
 
         if is_edit:
             update_entry(cipher, entry_key, data)
@@ -132,7 +132,7 @@ def open_identity_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, B
             messagebox.showerror("Error", "Label is required.")
             return
 
-        entry_key = entry_id if is_edit else f"identity_{data['label'].lower().replace(' ', '_')}"
+        entry_key = entry_id if is_edit else data['label']
 
         if is_edit:
             update_entry(cipher, entry_key, data)
@@ -204,7 +204,7 @@ def open_wifi_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, BTN_B
             messagebox.showerror("Error", "Network name is required.")
             return
 
-        entry_key = entry_id if is_edit else f"wifi_{data['ssid'].lower().replace(' ', '_')}"
+        entry_key = entry_id if is_edit else data['ssid']
 
         if is_edit:
             update_entry(cipher, entry_key, data)

@@ -65,7 +65,7 @@ def open_insurance_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, 
             messagebox.showerror("Error", "Policy name is required.")
             return
 
-        entry_key = entry_id if is_edit else f"insurance_{data['policy_name'].lower().replace(' ', '_')}"
+        entry_key = entry_id if is_edit else data['policy_name']
 
         if is_edit:
             update_entry(cipher, entry_key, data)
@@ -141,7 +141,7 @@ def open_medication_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
             messagebox.showerror("Error", "At least one medication name is required.")
             return
 
-        entry_key = entry_id if is_edit else f"medication_{data['brand_name'].lower().replace(' ', '_') or data['generic_name'].lower().replace(' ', '_')}"
+        entry_key = entry_id if is_edit else (data['brand_name'] or data['generic_name'])
 
         if is_edit:
             update_entry(cipher, entry_key, data)
