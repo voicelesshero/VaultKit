@@ -10,12 +10,14 @@ import sys
 from cryptography.fernet import Fernet
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
-from vault import add_entry, get_entry, update_entry, delete_entry, get_all_entries, get_entries_by_type, load_vault, setup_vault, search_vault
+from vault import add_entry, get_entry, update_entry, delete_entry, get_all_entries, get_entries_by_type, load_vault, setup_vault, search_vault, get_current_user, get_user_profile
 import threading
 from categories import open_category_view
 from session import SessionManager
 from hibp import check_and_notify
 from entry_selector import open_entry_selector
+from profile import open_profile_form, get_profile_defaults
+
 
 ph = PasswordHasher()
 
@@ -264,11 +266,27 @@ if not check_master_password():
 window.deiconify()
 session = SessionManager(window, verify_master)
 
+def on_profile_complete():
+    profile = get_user_profile(cipher)
+    print(profile)
+
+
+profile = get_user_profile(cipher)
+if profile and not profile[2]:
+    open_profile_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
+                      BTN_BG, BTN_FG, BTN_ACCENT, FONT, FONT_BOLD,
+                      first_run=True, on_complete=on_profile_complete)
 
 canvas = Canvas(width=300, height=300, bg=BG_COLOR, highlightthickness=0)
 logo_img = PhotoImage(file=resource_path("logo3.png"))
 canvas.create_image(150, 150, image=logo_img)
 canvas.grid(row=0, column=0, columnspan=3, pady=(0, 20))
+
+settings_btn = Button(text="⚙", bg=BG_COLOR, fg=LABEL_FG, relief="flat",
+                      font=("Helvetica", 14), cursor="hand2",
+                      command=lambda: open_profile_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
+                                                        BTN_BG, BTN_FG, BTN_ACCENT, FONT, FONT_BOLD))
+settings_btn.grid(row=0, column=2, sticky="ne")
 
 # Labels
 Label(text="Website:", bg=BG_COLOR, fg=LABEL_FG, font=FONT).grid(row=1, column=0, sticky="e", padx=(0, 10), pady=6)
