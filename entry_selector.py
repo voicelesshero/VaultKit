@@ -3,6 +3,7 @@ from emergency import open_emergency_form
 from health_entries import open_insurance_form, open_medication_form
 from personal_entries import open_note_form, open_identity_form, open_wifi_form
 from finance_entries import open_credit_card_form
+from password_entry_form import open_password_form
 
 ENTRY_TYPES = [
     ("🔑  Password",         "password"),
@@ -15,7 +16,8 @@ ENTRY_TYPES = [
     ("📶  WiFi Password",    "wifi"),
 ]
 
-def open_entry_selector(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, BTN_BG, BTN_FG, BTN_ACCENT, FONT, FONT_BOLD, on_password_selected=None):
+def open_entry_selector(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
+                        BTN_BG, BTN_FG, BTN_ACCENT, FONT, FONT_BOLD):
 
     selector = Toplevel(window)
     selector.title("Add New Entry")
@@ -30,8 +32,7 @@ def open_entry_selector(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, 
     def select(entry_type):
         selector.destroy()
         if entry_type == "password":
-            if on_password_selected:
-                on_password_selected()
+            open_password_form(*theme)
         elif entry_type == "emergency":
             open_emergency_form(*theme)
         elif entry_type == "insurance":
