@@ -1,6 +1,11 @@
 from tkinter import *
 from tkinter import ttk, messagebox
 from vault import get_all_entries, delete_entry, update_entry
+from password_entry_form import open_password_form
+from emergency import open_emergency_form
+from health_entries import open_insurance_form, open_medication_form
+from personal_entries import open_note_form, open_identity_form, open_wifi_form
+from finance_entries import open_credit_card_form
 
 CATEGORIES = ["All", "Personal", "Health", "Finance", "Family", "Work"]
 
@@ -100,9 +105,36 @@ def open_category_view(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, B
                   wraplength=300, justify="left").grid(row=row, column=1, sticky="w", pady=4)
             row += 1
 
-        Button(detail_win, text="Close", bg=ENTRY_BG, fg=LABEL_FG, relief="flat",
-               font=FONT_BOLD, cursor="hand2", command=detail_win.destroy).grid(
-            row=row, column=0, columnspan=2, sticky="ew", pady=(16, 0), ipady=4)
+        theme_args = (view, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
+                      BTN_BG, BTN_FG, BTN_ACCENT, FONT, FONT_BOLD)
+
+        _form_map = {
+            "password":    lambda: open_password_form(*theme_args, entry_id=entry_id),
+            "emergency":   lambda: open_emergency_form(*theme_args),
+            "insurance":   lambda: open_insurance_form(*theme_args, entry_id=entry_id),
+            "medication":  lambda: open_medication_form(*theme_args, entry_id=entry_id),
+            "note":        lambda: open_note_form(*theme_args, entry_id=entry_id),
+            "credit_card": lambda: open_credit_card_form(*theme_args, entry_id=entry_id),
+            "identity":    lambda: open_identity_form(*theme_args, entry_id=entry_id),
+            "wifi":        lambda: open_wifi_form(*theme_args, entry_id=entry_id),
+        }
+        entry_type = entry.get("type", "password")
+        open_form = _form_map.get(entry_type)
+
+        btn_frame = Frame(detail_win, bg=BG_COLOR)
+        btn_frame.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(16, 0))
+
+        if open_form:
+            def on_edit(fn=open_form):
+                detail_win.destroy()
+                fn()
+            Button(btn_frame, text="Edit", bg=BTN_ACCENT, fg=BTN_FG, relief="flat",
+                   font=FONT_BOLD, cursor="hand2", command=on_edit).pack(
+                side="left", expand=True, fill="x", padx=(0, 4), ipady=4)
+
+        Button(btn_frame, text="Close", bg=ENTRY_BG, fg=LABEL_FG, relief="flat",
+               font=FONT_BOLD, cursor="hand2", command=detail_win.destroy).pack(
+            side="left", expand=True, fill="x", ipady=4)
 
     tree.bind("<Double-1>", on_double_click)
 

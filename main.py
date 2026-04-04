@@ -151,6 +151,12 @@ def check_master_password():
 
         else:
             # Genuine first-time setup.
+            # TODO (future): Add a "Recover from sync account" button here for the case
+            # where ALL local files (including sync_config.json) have been deleted.
+            # Flow: user enters sync email + password → POST /auth/login to get token →
+            # GET /vault/status to fetch kdf_salt → derive key → download vault.
+            # This branch currently falls through to first-time setup when sync_config
+            # is absent, so the entry point would be a new button on this welcome dialog.
             messagebox.showinfo("Welcome", "No master password found. Let's create one.")
             new_pass = simpledialog.askstring("Setup", "Create a master password:", show="*")
             if not new_pass:

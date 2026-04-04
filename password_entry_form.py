@@ -104,6 +104,7 @@ def open_password_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
             strength_label.config(text="")
 
     pw_var.trace_add("write", update_strength)
+    update_strength()  # populate immediately if password is pre-filled (edit mode)
 
     btn_row = len(fields) + 1
 
