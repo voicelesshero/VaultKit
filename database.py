@@ -1,41 +1,58 @@
 import sqlite3
 import os
-import hashlib
-import base64
+from argon2.low_level import hash_secret_raw, Type
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 DB_PATH = "vaultkit.db"
 ENCRYPTED_DB_PATH = "vaultkit.bin"
 
 
-def make_key(password):
-    raw = hashlib.sha256(password.encode()).digest()
-    return base64.urlsafe_b64encode(raw)
+def make_key(password, salt):
+    """Derive a 32-byte AES-256 key from the master password using Argon2id."""
+    return hash_secret_raw(
+        secret=password.encode(),
+        salt=salt,
+        time_cost=3,
+        memory_cost=65536,
+        parallelism=4,
+        hash_len=32,
+        type=Type.ID
+    )
 
 
 # ---------------------------- ENCRYPTION ------------------------------- #
 
-def encrypt_db(cipher):
-    """Encrypt the SQLite database file."""
+def encrypt_db(key):
+    """Encrypt the SQLite database file with AES-256-GCM."""
     if not os.path.exists(DB_PATH):
         return
     with open(DB_PATH, "rb") as f:
         data = f.read()
-    encrypted = cipher.encrypt(data)
+    nonce = os.urandom(12)
+    encrypted = AESGCM(key).encrypt(nonce, data, None)
     with open(ENCRYPTED_DB_PATH, "wb") as f:
-        f.write(encrypted)
+        f.write(nonce + encrypted)
     os.remove(DB_PATH)
 
 
-def decrypt_db(cipher):
-    """Decrypt the database file for use."""
+def decrypt_db(key):
+    """Decrypt the vault file for use."""
     if not os.path.exists(ENCRYPTED_DB_PATH):
         return False
     with open(ENCRYPTED_DB_PATH, "rb") as f:
-        encrypted = f.read()
-    decrypted = cipher.decrypt(encrypted)
+        raw = f.read()
+    nonce, ciphertext = raw[:12], raw[12:]
+    decrypted = AESGCM(key).decrypt(nonce, ciphertext, None)
     with open(DB_PATH, "wb") as f:
         f.write(decrypted)
     return True
+
+
+def rekey_vault(old_key, new_key):
+    """Re-encrypt the vault under a new key. Used when the master password changes."""
+    if not decrypt_db(old_key):
+        raise ValueError("Could not decrypt vault with current key.")
+    encrypt_db(new_key)
 
 
 # ---------------------------- CONNECTION ------------------------------- #

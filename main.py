@@ -6,9 +6,9 @@ import json
 import os
 import sys
 import threading
-from cryptography.fernet import Fernet
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
+from database import make_key
 from vault import (add_entry, get_entry, update_entry, delete_entry,
                    get_all_entries, get_entries_by_type, load_vault,
                    setup_vault, search_vault, get_current_user, get_user_profile)
@@ -40,12 +40,6 @@ FONT_BOLD = ("Helvetica", 11, "bold")
 # ---------------------------- ENCRYPTION ------------------------------- #
 cipher = None
 
-def make_key(password):
-    import hashlib
-    import base64
-    raw = hashlib.sha256(password.encode()).digest()
-    return base64.urlsafe_b64encode(raw)
-
 # ---------------------------- MASTER PASSWORD ------------------------------- #
 def hash_password(password):
     return ph.hash(password)
@@ -73,7 +67,8 @@ def check_master_password():
             window.destroy()
             return False
 
-        cipher = Fernet(make_key(entered))
+        salt = bytes.fromhex(stored["kdf_salt"])
+        cipher = make_key(entered, salt)
         load_vault(cipher)
         return True
 
@@ -90,15 +85,20 @@ def check_master_password():
             window.destroy()
             return False
 
+        kdf_salt = os.urandom(16)
         with open("master.json", "w") as f:
-            json.dump({"master": hash_password(new_pass)}, f)
+            json.dump({"master": hash_password(new_pass), "kdf_salt": kdf_salt.hex()}, f)
 
-        cipher = Fernet(make_key(new_pass))
+        cipher = make_key(new_pass, kdf_salt)
         setup_vault(cipher, hash_password(new_pass))
         messagebox.showinfo("Success", "Master password set. Welcome!")
         return True
 
 # ---------------------------- FUNCTIONS ------------------------------- #
+def update_cipher(new_key):
+    global cipher
+    cipher = new_key
+
 def verify_master(entered):
     try:
         with open("master.json", "r") as f:
@@ -259,7 +259,8 @@ settings_btn = Button(header_frame, text="⚙", bg=BG_COLOR, fg=LABEL_FG, relief
                       font=("Helvetica", 14), cursor="hand2",
                       command=lambda: open_settings(window, cipher, BG_COLOR, ENTRY_BG,
                                                     ENTRY_FG, LABEL_FG, BTN_BG, BTN_FG,
-                                                    BTN_ACCENT, FONT, FONT_BOLD))
+                                                    BTN_ACCENT, FONT, FONT_BOLD,
+                                                    on_rekey=update_cipher))
 settings_btn.pack(side="right")
 
 # ---------------------------- SEARCH BAR ------------------------------- #

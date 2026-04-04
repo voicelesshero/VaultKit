@@ -1,9 +1,11 @@
 from tkinter import *
 from tkinter import messagebox
 import json
+import os
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from profile import open_profile_form
+from database import make_key, rekey_vault
 import session as session_module
 
 ph = PasswordHasher()
@@ -11,7 +13,7 @@ VERSION = "1.5.1"
 
 
 def open_settings(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
-                  BTN_BG, BTN_FG, BTN_ACCENT, FONT, FONT_BOLD):
+                  BTN_BG, BTN_FG, BTN_ACCENT, FONT, FONT_BOLD, on_rekey=None):
 
     win = Toplevel(window)
     win.title("Settings")
@@ -101,10 +103,22 @@ def open_settings(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
                 confirm_entry.focus_set()
                 return
 
-            with open("master.json", "w") as f:
-                json.dump({"master": ph.hash(new_pass)}, f)
+            new_salt = os.urandom(16)
+            new_key = make_key(new_pass, new_salt)
 
-            messagebox.showinfo("Success", "Master password updated. Please restart VaultKit.")
+            try:
+                rekey_vault(cipher, new_key)
+            except Exception:
+                messagebox.showerror("Error", "Failed to re-encrypt vault. Password not changed.")
+                return
+
+            with open("master.json", "w") as f:
+                json.dump({"master": ph.hash(new_pass), "kdf_salt": new_salt.hex()}, f)
+
+            if on_rekey:
+                on_rekey(new_key)
+
+            messagebox.showinfo("Success", "Master password updated successfully.")
             dialog.destroy()
             win.destroy()
 
