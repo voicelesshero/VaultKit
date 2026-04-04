@@ -1,6 +1,7 @@
-from flask import Blueprint, request, jsonify, make_response
+from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import hashlib
+import io
 import models
 from config import MAX_VAULT_SIZE_BYTES
 
@@ -56,14 +57,19 @@ def download_vault():
     if not vault or not vault["vault_data"]:
         return jsonify({"error": "No vault found for this account."}), 404
 
-    # Ensure we have raw bytes — sqlite3 returns BLOB as bytes, but be explicit.
+    # Explicit bytes() cast handles PostgreSQL BYTEA returning a memoryview.
     vault_bytes = bytes(vault["vault_data"])
+    checksum = vault["checksum"] or _sha256(vault_bytes)
 
-    response = make_response(vault_bytes)
-    response.headers["Content-Type"] = "application/octet-stream"
-    response.headers["Content-Disposition"] = "attachment; filename=vaultkit.bin"
-    response.headers["Content-Length"] = str(len(vault_bytes))
-    response.headers["X-Vault-Checksum"] = vault["checksum"] or _sha256(vault_bytes)
+    response = send_file(
+        io.BytesIO(vault_bytes),
+        mimetype="application/octet-stream",
+        as_attachment=True,
+        download_name="vaultkit.bin"
+    )
+    # Set checksum after send_file builds the response — send_file manages
+    # Content-Length and transfer encoding correctly for gunicorn.
+    response.headers["X-Vault-Checksum"] = checksum
     return response
 
 
