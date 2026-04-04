@@ -35,7 +35,7 @@ def vault_status():
 
     return jsonify({
         "has_vault": True,
-        "last_modified": vault["last_modified"],
+        "last_modified": str(vault["last_modified"]),
         "file_size": vault["file_size"],
         "checksum": vault["checksum"]
     }), 200
@@ -67,17 +67,21 @@ def download_vault():
     return response
 
 
-@sync_bp.route("/vault", methods=["PUT"])
+@sync_bp.route("/vault", methods=["POST"])
 @jwt_required()
 def upload_vault():
     """Accept a new encrypted vault blob and store it.
-    The client sends the raw bytes of vaultkit.bin — nothing is decrypted here."""
+    Expects multipart/form-data with a 'vault' file field.
+    POST + multipart is universally supported by proxies and WSGI servers."""
     user = _get_current_user()
     if not user:
         return jsonify({"error": "User not found."}), 401
 
-    # request.stream.read() gets raw bytes regardless of Content-Type header.
-    vault_data = request.stream.read()
+    if "vault" not in request.files:
+        return jsonify({"error": "No vault file in request."}), 400
+
+    vault_file = request.files["vault"]
+    vault_data = vault_file.read()
 
     if not vault_data:
         return jsonify({"error": "No vault data received."}), 400
@@ -87,14 +91,14 @@ def upload_vault():
 
     # Conflict check — if the client's last_known_modified doesn't match
     # the server, another device uploaded more recently.
-    client_last_known = request.headers.get("X-Last-Modified")
+    client_last_known = request.form.get("last_known_modified")
     if client_last_known:
         existing = models.get_vault(user["id"])
-        if existing and existing["vault_data"] and existing["last_modified"] != client_last_known:
+        if existing and existing["vault_data"] and str(existing["last_modified"]) != client_last_known:
             return jsonify({
                 "error": "conflict",
                 "message": "Vault was updated on another device.",
-                "server_last_modified": existing["last_modified"]
+                "server_last_modified": str(existing["last_modified"])
             }), 409
 
     checksum = _sha256(vault_data)
@@ -103,7 +107,7 @@ def upload_vault():
 
     return jsonify({
         "message": "Vault uploaded successfully.",
-        "last_modified": updated["last_modified"],
+        "last_modified": str(updated["last_modified"]),
         "file_size": updated["file_size"],
         "checksum": checksum
     }), 200

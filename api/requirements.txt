@@ -4,3 +4,4 @@ flask-limiter
 python-dotenv
 argon2-cffi
 gunicorn
+psycopg2-binary

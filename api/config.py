@@ -20,6 +20,11 @@ if IS_PRODUCTION and JWT_SECRET_KEY == "dev-secret-change-before-deploy":
 
 JWT_ACCESS_TOKEN_EXPIRES_HOURS = 24
 
+# PostgreSQL connection URL provided by Railway.
+# When set, the API uses PostgreSQL. When absent, falls back to local SQLite.
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+# SQLite fallback path for local development.
 SERVER_DB_PATH = os.path.join(os.path.dirname(__file__), "server.db")
 
 MAX_VAULT_SIZE_BYTES = 10 * 1024 * 1024

@@ -114,21 +114,25 @@ def get_vault_status():
 
 def upload_vault():
     """Upload local vaultkit.bin to server with conflict check.
+    Sends as multipart/form-data — universally supported by proxies.
     Returns (data_dict, status_code)."""
     if not os.path.exists(VAULT_PATH):
         return {"error": "No local vault file found."}, 404
 
     config = load_sync_config()
     last_known = config.get("last_known_server_modified")
-    headers = _auth_headers()
-    if last_known:
-        headers["X-Last-Modified"] = last_known
 
     try:
         with open(VAULT_PATH, "rb") as f:
             vault_data = f.read()
-        r = requests.put(f"{API_BASE_URL}/vault", data=vault_data,
-                         headers=headers, timeout=30)
+
+        files = {"vault": ("vaultkit.bin", vault_data, "application/octet-stream")}
+        data = {}
+        if last_known:
+            data["last_known_modified"] = last_known
+
+        r = requests.post(f"{API_BASE_URL}/vault", files=files, data=data,
+                          headers=_auth_headers(), timeout=30)
         if r.status_code == 200:
             _update_sync_timestamps(r.json()["last_modified"])
         return r.json(), r.status_code
@@ -167,15 +171,16 @@ def download_vault():
 
 def force_upload_after_rekey():
     """Upload vault unconditionally after a master password change.
-    Intentionally skips the X-Last-Modified conflict header so it always
-    overwrites the server copy — the local rekeyed vault is authoritative."""
+    Skips the last_known_modified conflict field so it always overwrites
+    the server copy — the local rekeyed vault is authoritative."""
     if not is_logged_in() or not os.path.exists(VAULT_PATH):
         return
     try:
         with open(VAULT_PATH, "rb") as f:
             vault_data = f.read()
-        r = requests.put(f"{API_BASE_URL}/vault", data=vault_data,
-                         headers=_auth_headers(), timeout=30)
+        files = {"vault": ("vaultkit.bin", vault_data, "application/octet-stream")}
+        r = requests.post(f"{API_BASE_URL}/vault", files=files,
+                          headers=_auth_headers(), timeout=30)
         if r.status_code == 200:
             _update_sync_timestamps(r.json()["last_modified"])
     except Exception:
