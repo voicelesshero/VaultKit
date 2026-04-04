@@ -14,3 +14,4 @@ api/server.db
 api/.env
 .env
 .claude/
+vaultkit_backup.bin
