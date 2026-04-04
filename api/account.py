@@ -16,6 +16,8 @@ def change_password():
     encryption is untouched."""
     email = get_jwt_identity()
     user = models.get_user_by_email(email)
+    if not user:
+        return jsonify({"error": "User not found."}), 401
     data = request.get_json()
 
     if not data or not data.get("current_password") or not data.get("new_password"):
@@ -40,6 +42,8 @@ def delete_account():
     server-side copy."""
     email = get_jwt_identity()
     user = models.get_user_by_email(email)
+    if not user:
+        return jsonify({"error": "User not found."}), 401
     data = request.get_json()
 
     if not data or not data.get("password"):

@@ -8,8 +8,11 @@ sync_bp = Blueprint("sync", __name__)
 
 
 def _get_current_user():
-    """Resolve the JWT identity (email) to a user row."""
+    """Resolve the JWT identity (email) to a user row.
+    Returns None if identity is missing or user is not found."""
     email = get_jwt_identity()
+    if not email:
+        return None
     return models.get_user_by_email(email)
 
 
@@ -23,6 +26,8 @@ def vault_status():
     """Return metadata only — lets the client check if a sync is needed
     without downloading the full vault blob."""
     user = _get_current_user()
+    if not user:
+        return jsonify({"error": "User not found."}), 401
     vault = models.get_vault(user["id"])
 
     if not vault or not vault["vault_data"]:
@@ -44,6 +49,8 @@ def download_vault():
     encoding that corrupts binary data. Checksum is included in a response
     header so the client can verify the file arrived intact."""
     user = _get_current_user()
+    if not user:
+        return jsonify({"error": "User not found."}), 401
     vault = models.get_vault(user["id"])
 
     if not vault or not vault["vault_data"]:
@@ -66,6 +73,8 @@ def upload_vault():
     """Accept a new encrypted vault blob and store it.
     The client sends the raw bytes of vaultkit.bin — nothing is decrypted here."""
     user = _get_current_user()
+    if not user:
+        return jsonify({"error": "User not found."}), 401
 
     # request.stream.read() gets raw bytes regardless of Content-Type header.
     vault_data = request.stream.read()
