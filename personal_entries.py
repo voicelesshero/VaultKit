@@ -1,6 +1,7 @@
 from tkinter import *
 from tkinter import messagebox
 from vault import add_entry, get_entry, update_entry
+from profile import get_profile_defaults
 
 MULTILINE_FIELDS = {"notes", "content"}
 
@@ -77,6 +78,7 @@ def open_identity_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, B
 
     is_edit = entry_id is not None
     existing = get_entry(cipher, entry_id) if is_edit else None
+    profile = get_profile_defaults(cipher)
 
     form = Toplevel(window)
     form.title("Edit Identity" if is_edit else "Add Identity Info")
@@ -99,6 +101,15 @@ def open_identity_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, B
         ("Notes", "notes"),
     ]
 
+    # profile auto-fill map
+    profile_defaults = {
+        "full_name": profile.get("full_name", ""),
+        "dob": profile.get("dob", ""),
+        "address": profile.get("address", ""),
+        "phone": profile.get("phone", ""),
+        "email": profile.get("email", ""),
+    }
+
     entries = {}
 
     for i, (label, key) in enumerate(fields):
@@ -117,6 +128,8 @@ def open_identity_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, B
             widget.grid(row=i, column=1, sticky="ew", ipady=4, pady=4)
             if existing and existing.get(key):
                 widget.insert(0, existing.get(key, ""))
+            elif not is_edit and profile_defaults.get(key):
+                widget.insert(0, profile_defaults[key])
 
         entries[key] = widget
 

@@ -1,6 +1,7 @@
 from tkinter import *
 from tkinter import messagebox
 from vault import add_entry, get_entry, update_entry
+from profile import get_profile_defaults
 
 MULTILINE_FIELDS = {"notes"}
 
@@ -11,6 +12,7 @@ def open_credit_card_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG
 
     is_edit = entry_id is not None
     existing = get_entry(cipher, entry_id) if is_edit else None
+    profile = get_profile_defaults(cipher)
 
     form = Toplevel(window)
     form.title("Edit Credit Card" if is_edit else "Add Credit Card")
@@ -32,6 +34,12 @@ def open_credit_card_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG
         ("Notes", "notes"),
     ]
 
+    profile_defaults = {
+        "cardholder_name": profile.get("full_name", ""),
+        "billing_address": profile.get("address", ""),
+        "phone": profile.get("phone", ""),
+    }
+
     entries = {}
 
     for i, (label, key) in enumerate(fields):
@@ -50,6 +58,8 @@ def open_credit_card_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG
             widget.grid(row=i, column=1, sticky="ew", ipady=4, pady=4)
             if existing and existing.get(key):
                 widget.insert(0, existing.get(key, ""))
+            elif not is_edit and profile_defaults.get(key):
+                widget.insert(0, profile_defaults[key])
 
         entries[key] = widget
 

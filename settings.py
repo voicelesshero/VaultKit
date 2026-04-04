@@ -1,5 +1,5 @@
 from tkinter import *
-from tkinter import messagebox, simpledialog
+from tkinter import messagebox
 import json
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
@@ -7,7 +7,7 @@ from profile import open_profile_form
 import session as session_module
 
 ph = PasswordHasher()
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 
 
 def open_settings(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
@@ -38,8 +38,7 @@ def open_settings(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
     section_label("Profile", 0)
 
     setting_btn("Edit Profile", ENTRY_BG, 2,
-                lambda: [win.destroy(),
-                         open_profile_form(*theme)])
+                lambda: [win.destroy(), open_profile_form(*theme)])
 
     # ---------------------------- SECURITY ------------------------------- #
     section_label("Security", 3)
@@ -49,7 +48,7 @@ def open_settings(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
         dialog.title("Change Master Password")
         dialog.config(padx=30, pady=30, bg=BG_COLOR)
         dialog.resizable(False, False)
-        dialog.grab_set()  # modal
+        dialog.grab_set()
 
         Label(dialog, text="Current Password:", bg=BG_COLOR, fg=LABEL_FG, font=FONT).grid(
             row=0, column=0, sticky="e", padx=(0, 10), pady=6)
@@ -113,7 +112,6 @@ def open_settings(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
                font=FONT_BOLD, cursor="hand2", command=submit).grid(
             row=3, column=0, columnspan=2, sticky="ew", pady=(16, 0), ipady=6)
 
-        # tab between fields naturally
         current_entry.bind("<Return>", lambda e: new_entry.focus_set())
         new_entry.bind("<Return>", lambda e: confirm_entry.focus_set())
         confirm_entry.bind("<Return>", lambda e: submit())
@@ -137,8 +135,7 @@ def open_settings(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
     def save_timeout():
         session_module.TIMEOUT_MINUTES = timeout_var.get()
         session_module.TIMEOUT_SECONDS = timeout_var.get() * 60
-        messagebox.showinfo("Saved",
-                            f"Session timeout set to {timeout_var.get()} minutes.")
+        messagebox.showinfo("Saved", f"Session timeout set to {timeout_var.get()} minutes.")
 
     Button(win, text="Apply Timeout", bg=BTN_BG, fg=BTN_FG, relief="flat",
            font=FONT, cursor="hand2", command=save_timeout).grid(

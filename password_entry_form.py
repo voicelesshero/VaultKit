@@ -5,6 +5,7 @@ import pyperclip
 import threading
 from vault import add_entry, get_entry, update_entry
 from hibp import check_and_notify
+from profile import get_profile_defaults
 
 
 def check_password_strength(password):
@@ -29,6 +30,7 @@ def open_password_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
 
     is_edit = entry_id is not None
     existing = get_entry(cipher, entry_id) if is_edit else None
+    profile = get_profile_defaults(cipher)
 
     form = Toplevel(window)
     form.title("Edit Password" if is_edit else "Add Password")
@@ -86,9 +88,10 @@ def open_password_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
             widget.grid(row=i, column=1, columnspan=2, sticky="ew", ipady=4, pady=4)
             if existing and existing.get(key):
                 widget.insert(0, existing[key])
+            elif key == "email" and profile.get("email"):
+                widget.insert(0, profile["email"])
             entries[key] = widget
 
-    # strength label
     strength_label = Label(form, text="", bg=BG_COLOR, font=FONT)
     strength_label.grid(row=len(fields), column=1, sticky="w", pady=(0, 4))
 
@@ -102,7 +105,6 @@ def open_password_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
 
     pw_var.trace_add("write", update_strength)
 
-    # action buttons
     btn_row = len(fields) + 1
 
     def generate_password():
