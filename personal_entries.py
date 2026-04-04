@@ -106,7 +106,7 @@ def open_identity_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, B
         "full_name": profile.get("full_name", ""),
         "dob": profile.get("dob", ""),
         "address": profile.get("address", ""),
-        "phone": profile.get("phone", ""),
+        "phone": profile.get("cell_phone", ""),
         "email": profile.get("email", ""),
     }
 

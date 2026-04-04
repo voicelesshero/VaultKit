@@ -37,7 +37,6 @@ def open_credit_card_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG
     profile_defaults = {
         "cardholder_name": profile.get("full_name", ""),
         "billing_address": profile.get("address", ""),
-        "phone": profile.get("phone", ""),
     }
 
     entries = {}

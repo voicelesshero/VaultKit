@@ -14,7 +14,8 @@ from database import (
 ENTRY_TYPES = {
     "password": ["website", "email", "password"],
     "emergency": [
-        "full_name", "blood_type", "allergies", "medications",
+        "full_name", "cell_phone", "home_phone",
+        "blood_type", "allergies", "medications",
         "primary_doctor", "doctor_phone", "emergency_contact",
         "emergency_contact_phone", "insurance_provider", "policy_number",
         "medical_conditions", "hospital_preference", "notes"

@@ -9,6 +9,7 @@ import threading
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from database import make_key
+import api_client
 from vault import (add_entry, get_entry, update_entry, delete_entry,
                    get_all_entries, get_entries_by_type, load_vault,
                    setup_vault, search_vault, get_current_user, get_user_profile)
@@ -98,6 +99,10 @@ def check_master_password():
 def update_cipher(new_key):
     global cipher
     cipher = new_key
+    # After a master password change the vault is rekeyed locally.
+    # Force-upload to overwrite the server copy so no device can download
+    # a blob encrypted with the old key. Runs in background — non-blocking.
+    threading.Thread(target=api_client.force_upload_after_rekey, daemon=True).start()
 
 def verify_master(entered):
     try:
@@ -212,6 +217,49 @@ if not check_master_password():
 
 window.deiconify()
 session = SessionManager(window, verify_master)
+
+
+def startup_sync_check():
+    """Run in a background thread. If the server has a newer vault,
+    prompt the user on the main thread via window.after."""
+    if not api_client.is_logged_in():
+        return
+
+    status, code = api_client.get_vault_status()
+
+    if code == 0 or status is None:
+        return  # server unreachable — silent, offline use continues normally
+
+    if code == 401:
+        return  # token expired — user will be prompted next time they open Settings > Sync
+
+    if not status.get("has_vault"):
+        # No vault on server yet — upload current local vault silently.
+        api_client.upload_vault()
+        return
+
+    server_modified = status.get("last_modified", "")
+    last_synced = api_client.get_last_synced() or ""
+
+    if server_modified > last_synced:
+        # Server is newer — prompt user on main thread.
+        def prompt():
+            answer = messagebox.askyesno(
+                "Vault Updated",
+                f"Your vault was updated on another device.\n\n"
+                f"Download the latest version?\n"
+                f"(Your local copy will be replaced.)"
+            )
+            if answer:
+                success, err = api_client.download_vault()
+                if success:
+                    messagebox.showinfo("Synced", "Vault updated. Please restart VaultKit.")
+                else:
+                    messagebox.showerror("Sync Failed", err or "Could not download vault.")
+        window.after(0, prompt)
+
+
+threading.Thread(target=startup_sync_check, daemon=True).start()
 
 def on_profile_complete():
     refresh_greeting()

@@ -31,12 +31,17 @@ def open_profile_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
         addr_stored = existing[6] or ""
         dob_parts = dob_stored.split("|") if dob_stored else []
         addr_parts = addr_stored.split("|") if addr_stored else []
+        phone_stored = existing[4] or ""
+        phone_parts = phone_stored.split("|") if phone_stored else []
+        # Backwards compat: single old value becomes cell_phone
         profile_map = {
             "full_name": existing[2] or "",
             "dob_month": dob_parts[0] if len(dob_parts) > 0 else "",
             "dob_day": dob_parts[1] if len(dob_parts) > 1 else "",
             "dob_year": dob_parts[2] if len(dob_parts) > 2 else "",
-            "phone": existing[4] or "",
+            "cell_phone": phone_parts[0] if len(phone_parts) > 0 else "",
+            "home_phone": phone_parts[1] if len(phone_parts) > 1 else "",
+            "work_phone": phone_parts[2] if len(phone_parts) > 2 else "",
             "email": existing[5] or "",
             "street": addr_parts[0] if len(addr_parts) > 0 else "",
             "apt": addr_parts[1] if len(addr_parts) > 1 else "",
@@ -82,22 +87,44 @@ def open_profile_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
     Label(dob_frame, text="YYYY", bg=BG_COLOR, fg=LABEL_FG, font=("Helvetica", 9)).pack(side="left", padx=(2, 0))
     r += 1
 
-    # Phone
-    Label(form, text="Phone:", bg=BG_COLOR, fg=LABEL_FG, font=FONT).grid(
+    # Cell Phone
+    Label(form, text="Cell Phone:", bg=BG_COLOR, fg=LABEL_FG, font=FONT).grid(
         row=r, column=0, sticky="e", padx=(0, 10), pady=4)
-    entries["phone"] = Entry(form, width=35, bg=ENTRY_BG, fg=ENTRY_FG,
-                              insertbackground=ENTRY_FG, relief="flat", font=FONT)
-    entries["phone"].grid(row=r, column=1, columnspan=3, sticky="ew", ipady=4, pady=4)
-    entries["phone"].insert(0, profile_map.get("phone", ""))
+    entries["cell_phone"] = Entry(form, width=35, bg=ENTRY_BG, fg=ENTRY_FG,
+                                   insertbackground=ENTRY_FG, relief="flat", font=FONT)
+    entries["cell_phone"].grid(row=r, column=1, columnspan=3, sticky="ew", ipady=4, pady=4)
+    entries["cell_phone"].insert(0, profile_map.get("cell_phone", ""))
     r += 1
 
-    # Email
-    Label(form, text="Email:", bg=BG_COLOR, fg=LABEL_FG, font=FONT).grid(
+    # Home Phone
+    Label(form, text="Home Phone:", bg=BG_COLOR, fg=LABEL_FG, font=FONT).grid(
         row=r, column=0, sticky="e", padx=(0, 10), pady=4)
+    entries["home_phone"] = Entry(form, width=35, bg=ENTRY_BG, fg=ENTRY_FG,
+                                   insertbackground=ENTRY_FG, relief="flat", font=FONT)
+    entries["home_phone"].grid(row=r, column=1, columnspan=3, sticky="ew", ipady=4, pady=4)
+    entries["home_phone"].insert(0, profile_map.get("home_phone", ""))
+    r += 1
+
+    # Work Phone
+    Label(form, text="Work Phone:", bg=BG_COLOR, fg=LABEL_FG, font=FONT).grid(
+        row=r, column=0, sticky="e", padx=(0, 10), pady=4)
+    entries["work_phone"] = Entry(form, width=35, bg=ENTRY_BG, fg=ENTRY_FG,
+                                   insertbackground=ENTRY_FG, relief="flat", font=FONT)
+    entries["work_phone"].grid(row=r, column=1, columnspan=3, sticky="ew", ipady=4, pady=4)
+    entries["work_phone"].insert(0, profile_map.get("work_phone", ""))
+    r += 1
+
+    # Primary Email
+    Label(form, text="Primary Email:", bg=BG_COLOR, fg=LABEL_FG, font=FONT).grid(
+        row=r, column=0, sticky="e", padx=(0, 10), pady=(4, 0))
     entries["email"] = Entry(form, width=35, bg=ENTRY_BG, fg=ENTRY_FG,
                               insertbackground=ENTRY_FG, relief="flat", font=FONT)
-    entries["email"].grid(row=r, column=1, columnspan=3, sticky="ew", ipady=4, pady=4)
+    entries["email"].grid(row=r, column=1, columnspan=3, sticky="ew", ipady=4, pady=(4, 0))
     entries["email"].insert(0, profile_map.get("email", ""))
+    r += 1
+    Label(form, text="used for auto-fill and sync account setup",
+          bg=BG_COLOR, fg=LABEL_FG, font=("Helvetica", 8)).grid(
+        row=r, column=1, columnspan=3, sticky="w", pady=(0, 6))
     r += 1
 
     # Street Address
@@ -146,16 +173,17 @@ def open_profile_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
             return
 
         dob = f"{entries['dob_month'].get()}|{entries['dob_day'].get()}|{entries['dob_year'].get()}"
+        phone = (f"{entries['cell_phone'].get()}|{entries['home_phone'].get()}|"
+                 f"{entries['work_phone'].get()}")
         address = (f"{entries['street'].get()}|{entries['apt'].get()}|"
                    f"{entries['city'].get()}|{entries['state'].get()}|{entries['zip'].get()}")
 
-        # pack dob and address into the existing columns
         update_user_profile(
             cipher,
             user[0],
             entries["full_name"].get(),
             dob,
-            entries["phone"].get(),
+            phone,
             entries["email"].get(),
             address,
         )
@@ -193,8 +221,10 @@ def get_profile_defaults(cipher):
 
     stored_addr = existing[6] or ""
     stored_dob = existing[3] or ""
+    stored_phone = existing[4] or ""
     addr_parts = stored_addr.split("|") if stored_addr else []
     dob_parts = stored_dob.split("|") if stored_dob else []
+    phone_parts = stored_phone.split("|") if stored_phone else []
 
     street = addr_parts[0] if len(addr_parts) > 0 else ""
     apt = addr_parts[1] if len(addr_parts) > 1 else ""
@@ -209,10 +239,17 @@ def get_profile_defaults(cipher):
     year = dob_parts[2] if len(dob_parts) > 2 else ""
     full_dob = f"{month}/{day}/{year}".strip("/")
 
+    cell_phone = phone_parts[0] if len(phone_parts) > 0 else ""
+    home_phone = phone_parts[1] if len(phone_parts) > 1 else ""
+    work_phone = phone_parts[2] if len(phone_parts) > 2 else ""
+
     return {
         "full_name": existing[2] or "",
         "dob": full_dob,
-        "phone": existing[4] or "",
+        "cell_phone": cell_phone,
+        "home_phone": home_phone,
+        "work_phone": work_phone,
+        "phone": cell_phone,   # alias — forms that use "phone" get cell by default
         "email": existing[5] or "",
         "address": full_address,
         "street": street,

@@ -3,3 +3,4 @@ pyperclip
 argon2-cffi
 flask
 flask-jwt-extended
+requests

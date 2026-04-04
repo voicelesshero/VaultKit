@@ -1,6 +1,7 @@
 from tkinter import *
 from tkinter import messagebox
 from vault import add_entry, get_entry, update_entry
+from profile import get_profile_defaults
 
 # Fields that need multiline text boxes
 MULTILINE_FIELDS = {"allergies", "medications", "medical_conditions", "notes"}
@@ -12,8 +13,9 @@ def open_emergency_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, 
     form.config(padx=40, pady=40, bg=BG_COLOR)
     form.resizable(False, False)
 
+    profile = get_profile_defaults(cipher)
+
     fields = [
-        ("Full Name", "full_name"),
         ("Blood Type", "blood_type"),
         ("Allergies", "allergies"),
         ("Current Medications", "medications"),
@@ -56,13 +58,19 @@ def open_emergency_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, 
         data = {}
         for key, widget in entries.items():
             if key in MULTILINE_FIELDS:
-                # Text widget uses get("1.0", END), strip trailing newline
                 data[key] = widget.get("1.0", END).strip()
             else:
                 data[key] = widget.get()
 
+        # Pull identifying fields silently from profile — not asked again in this form.
+        data["full_name"] = profile.get("full_name", "")
+        data["cell_phone"] = profile.get("cell_phone", "")
+        data["home_phone"] = profile.get("home_phone", "")
         if not data["full_name"]:
-            messagebox.showerror("Error", "Full name is required.")
+            messagebox.showerror(
+                "Profile Incomplete",
+                "Your full name is missing. Please complete your profile first."
+            )
             return
 
         if existing:
