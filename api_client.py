@@ -1,6 +1,11 @@
 import requests
 import json
 import os
+import hashlib
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 # Change this to your deployed server URL when hosting publicly.
 API_BASE_URL = "http://127.0.0.1:5000"
@@ -133,13 +138,23 @@ def upload_vault():
 
 def download_vault():
     """Download vault blob from server and overwrite local vaultkit.bin.
+    Verifies the SHA256 checksum from the response header before writing.
     Returns (success: bool, error_message: str | None)."""
     try:
         r = requests.get(f"{API_BASE_URL}/vault",
                          headers=_auth_headers(), timeout=30)
         if r.status_code == 200:
+            vault_bytes = r.content
+            expected_checksum = r.headers.get("X-Vault-Checksum")
+
+            if expected_checksum:
+                actual_checksum = _sha256(vault_bytes)
+                if actual_checksum != expected_checksum:
+                    return False, "Vault download corrupted — checksum mismatch. Please try again."
+
             with open(VAULT_PATH, "wb") as f:
-                f.write(r.content)
+                f.write(vault_bytes)
+
             # Re-check status to get the authoritative last_modified timestamp.
             status, code = get_vault_status()
             if code == 200 and status:

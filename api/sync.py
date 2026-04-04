@@ -1,6 +1,6 @@
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify, make_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
-import io
+import hashlib
 import models
 from config import MAX_VAULT_SIZE_BYTES
 
@@ -11,6 +11,10 @@ def _get_current_user():
     """Resolve the JWT identity (email) to a user row."""
     email = get_jwt_identity()
     return models.get_user_by_email(email)
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 @sync_bp.route("/vault/status", methods=["GET"])
@@ -27,7 +31,8 @@ def vault_status():
     return jsonify({
         "has_vault": True,
         "last_modified": vault["last_modified"],
-        "file_size": vault["file_size"]
+        "file_size": vault["file_size"],
+        "checksum": vault["checksum"]
     }), 200
 
 
@@ -35,18 +40,24 @@ def vault_status():
 @jwt_required()
 def download_vault():
     """Return the user's encrypted vault blob as raw bytes.
-    The server has no idea what's inside — it's just returning a file."""
+    Uses make_response with explicit bytes — send_file can apply content
+    encoding that corrupts binary data. Checksum is included in a response
+    header so the client can verify the file arrived intact."""
     user = _get_current_user()
     vault = models.get_vault(user["id"])
 
     if not vault or not vault["vault_data"]:
         return jsonify({"error": "No vault found for this account."}), 404
 
-    return send_file(
-        io.BytesIO(vault["vault_data"]),
-        mimetype="application/octet-stream",
-        download_name="vaultkit.bin"
-    )
+    # Ensure we have raw bytes — sqlite3 returns BLOB as bytes, but be explicit.
+    vault_bytes = bytes(vault["vault_data"])
+
+    response = make_response(vault_bytes)
+    response.headers["Content-Type"] = "application/octet-stream"
+    response.headers["Content-Disposition"] = "attachment; filename=vaultkit.bin"
+    response.headers["Content-Length"] = str(len(vault_bytes))
+    response.headers["X-Vault-Checksum"] = vault["checksum"] or _sha256(vault_bytes)
+    return response
 
 
 @sync_bp.route("/vault", methods=["PUT"])
@@ -57,7 +68,6 @@ def upload_vault():
     user = _get_current_user()
 
     # request.stream.read() gets raw bytes regardless of Content-Type header.
-    # request.data alone goes empty if Content-Type isn't octet-stream.
     vault_data = request.stream.read()
 
     if not vault_data:
@@ -66,8 +76,8 @@ def upload_vault():
     if len(vault_data) > MAX_VAULT_SIZE_BYTES:
         return jsonify({"error": "Vault exceeds maximum allowed size."}), 413
 
-    # Check for conflicts — if the client's last_known_modified doesn't match
-    # what the server has, another device uploaded more recently.
+    # Conflict check — if the client's last_known_modified doesn't match
+    # the server, another device uploaded more recently.
     client_last_known = request.headers.get("X-Last-Modified")
     if client_last_known:
         existing = models.get_vault(user["id"])
@@ -78,11 +88,13 @@ def upload_vault():
                 "server_last_modified": existing["last_modified"]
             }), 409
 
-    models.save_vault(user["id"], vault_data)
+    checksum = _sha256(vault_data)
+    models.save_vault(user["id"], vault_data, checksum)
     updated = models.get_vault(user["id"])
 
     return jsonify({
         "message": "Vault uploaded successfully.",
         "last_modified": updated["last_modified"],
-        "file_size": updated["file_size"]
+        "file_size": updated["file_size"],
+        "checksum": checksum
     }), 200

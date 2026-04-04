@@ -34,9 +34,16 @@ def init_db():
             vault_data    BLOB,
             last_modified TEXT    DEFAULT (datetime('now')),
             file_size     INTEGER DEFAULT 0,
+            checksum      TEXT,
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
+    # Add checksum column to existing databases that predate this schema change.
+    try:
+        c.execute("ALTER TABLE vaults ADD COLUMN checksum TEXT")
+        conn.commit()
+    except Exception:
+        pass  # column already exists
 
     conn.commit()
     conn.close()
@@ -102,15 +109,16 @@ def get_vault(user_id):
     return vault
 
 
-def save_vault(user_id, vault_data):
+def save_vault(user_id, vault_data, checksum):
     conn = get_db()
     c = conn.cursor()
     c.execute("""
         UPDATE vaults
         SET vault_data    = ?,
             last_modified = datetime('now'),
-            file_size     = ?
+            file_size     = ?,
+            checksum      = ?
         WHERE user_id = ?
-    """, (vault_data, len(vault_data), user_id))
+    """, (vault_data, len(vault_data), checksum, user_id))
     conn.commit()
     conn.close()
