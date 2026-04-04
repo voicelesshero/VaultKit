@@ -1,8 +1,9 @@
 data.bin
+vaultkit.bin
 master.json
-.idea/
-__pycache__/
-*.pyc
 dist/
 build/
-*.spec".vscode/" 
+*.spec
+.vscode/
+__pycache__/
+*.pyc
