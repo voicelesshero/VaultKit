@@ -63,9 +63,15 @@ def init_db():
                 last_modified TIMESTAMPTZ DEFAULT NOW(),
                 file_size     INTEGER DEFAULT 0,
                 checksum      TEXT,
+                kdf_salt      TEXT,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """)
+        try:
+            c.execute("ALTER TABLE vaults ADD COLUMN kdf_salt TEXT")
+            conn.commit()
+        except Exception:
+            pass
     else:
         c.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -83,14 +89,16 @@ def init_db():
                 last_modified TEXT    DEFAULT (datetime('now')),
                 file_size     INTEGER DEFAULT 0,
                 checksum      TEXT,
+                kdf_salt      TEXT,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """)
-        # Migrate existing SQLite databases that predate the checksum column.
-        try:
-            c.execute("ALTER TABLE vaults ADD COLUMN checksum TEXT")
-        except Exception:
-            pass  # column already exists
+        # Migrate existing SQLite databases that predate these columns.
+        for col in ["checksum TEXT", "kdf_salt TEXT"]:
+            try:
+                c.execute(f"ALTER TABLE vaults ADD COLUMN {col}")
+            except Exception:
+                pass
 
     conn.commit()
     conn.close()
@@ -170,7 +178,7 @@ def get_vault(user_id):
     return dict(vault) if vault else None
 
 
-def save_vault(user_id, vault_data, checksum):
+def save_vault(user_id, vault_data, checksum, kdf_salt=None):
     conn = get_db()
     c = _cursor(conn)
     c.execute(
@@ -179,10 +187,11 @@ def save_vault(user_id, vault_data, checksum):
         SET vault_data    = {P},
             last_modified = {_now()},
             file_size     = {P},
-            checksum      = {P}
+            checksum      = {P},
+            kdf_salt      = {P}
         WHERE user_id     = {P}
         """,
-        (vault_data, len(vault_data), checksum, user_id)
+        (vault_data, len(vault_data), checksum, kdf_salt, user_id)
     )
     conn.commit()
     conn.close()

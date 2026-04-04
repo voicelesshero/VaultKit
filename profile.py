@@ -170,6 +170,12 @@ def open_profile_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
     def save_profile():
         user = get_current_user(cipher)
         if not user:
+            messagebox.showerror(
+                "Profile Error",
+                "Could not find your user account in the vault.\n\n"
+                "This can happen if the vault file is missing or was not "
+                "loaded correctly. Try closing and reopening VaultKit."
+            )
             return
 
         dob = f"{entries['dob_month'].get()}|{entries['dob_day'].get()}|{entries['dob_year'].get()}"

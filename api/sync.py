@@ -38,7 +38,8 @@ def vault_status():
         "has_vault": True,
         "last_modified": str(vault["last_modified"]),
         "file_size": vault["file_size"],
-        "checksum": vault["checksum"]
+        "checksum": vault["checksum"],
+        "kdf_salt": vault["kdf_salt"]
     }), 200
 
 
@@ -67,9 +68,9 @@ def download_vault():
         as_attachment=True,
         download_name="vaultkit.bin"
     )
-    # Set checksum after send_file builds the response — send_file manages
-    # Content-Length and transfer encoding correctly for gunicorn.
     response.headers["X-Vault-Checksum"] = checksum
+    if vault["kdf_salt"]:
+        response.headers["X-KDF-Salt"] = vault["kdf_salt"]
     return response
 
 
@@ -108,7 +109,8 @@ def upload_vault():
             }), 409
 
     checksum = _sha256(vault_data)
-    models.save_vault(user["id"], vault_data, checksum)
+    kdf_salt = request.form.get("kdf_salt")
+    models.save_vault(user["id"], vault_data, checksum, kdf_salt)
     updated = models.get_vault(user["id"])
 
     return jsonify({

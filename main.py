@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import threading
+import datetime
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from database import make_key
@@ -70,30 +71,98 @@ def check_master_password():
 
         salt = bytes.fromhex(stored["kdf_salt"])
         cipher = make_key(entered, salt)
+
+        # If the local vault file is missing but the user has a sync account,
+        # download it now before loading — blocking is fine here since the
+        # user is already waiting at the login screen.
+        if not os.path.exists("vaultkit.bin") and api_client.is_logged_in():
+            status, code = api_client.get_vault_status()
+            if code == 200 and status and status.get("has_vault"):
+                success, err = api_client.download_vault()
+                if not success:
+                    messagebox.showwarning(
+                        "Sync",
+                        f"Could not download vault from server: {err}\n\n"
+                        "Opening with empty vault. You can sync manually from Settings."
+                    )
+
         load_vault(cipher)
         return True
 
     except FileNotFoundError:
-        messagebox.showinfo("Welcome", "No master password found. Let's create one.")
-        new_pass = simpledialog.askstring("Setup", "Create a master password:", show="*")
-        if not new_pass:
-            window.destroy()
-            return False
+        # No master.json on this device. Check if this is a new device
+        # restoring from sync, or a genuine first-time setup.
+        sync_cfg = api_client.load_sync_config()
+        server_kdf_salt = sync_cfg.get("kdf_salt")
 
-        confirm = simpledialog.askstring("Setup", "Confirm master password:", show="*")
-        if new_pass != confirm:
-            messagebox.showerror("Error", "Passwords do not match.")
-            window.destroy()
-            return False
+        # kdf_salt may not be in sync_config yet (pre-feature upload).
+        # Fetch it live from the server status endpoint.
+        if api_client.is_logged_in() and not server_kdf_salt:
+            status, code = api_client.get_vault_status()
+            if code == 200 and status and status.get("kdf_salt"):
+                server_kdf_salt = status["kdf_salt"]
+                sync_cfg["kdf_salt"] = server_kdf_salt
+                api_client.save_sync_config(sync_cfg)
 
-        kdf_salt = os.urandom(16)
-        with open("master.json", "w") as f:
-            json.dump({"master": hash_password(new_pass), "kdf_salt": kdf_salt.hex()}, f)
+        if api_client.is_logged_in() and server_kdf_salt:
+            # New device with an existing sync account — restore flow.
+            messagebox.showinfo(
+                "Restore Vault",
+                "No local vault found. Enter your master password to restore from sync."
+            )
+            entered = simpledialog.askstring("Restore", "Enter master password:", show="*")
+            if not entered:
+                window.destroy()
+                return False
 
-        cipher = make_key(new_pass, kdf_salt)
-        setup_vault(cipher, hash_password(new_pass))
-        messagebox.showinfo("Success", "Master password set. Welcome!")
-        return True
+            kdf_salt = bytes.fromhex(server_kdf_salt)
+            cipher = make_key(entered, kdf_salt)
+
+            # Download the vault — decryption will reveal if the password is correct.
+            status, code = api_client.get_vault_status()
+            if code == 200 and status and status.get("has_vault"):
+                success, err = api_client.download_vault()
+                if not success:
+                    messagebox.showerror("Restore Failed", err or "Could not download vault.")
+                    window.destroy()
+                    return False
+            else:
+                messagebox.showerror("Restore Failed", "No vault found on server.")
+                window.destroy()
+                return False
+
+            # Reconstruct master.json — we don't have the Argon2 hash so we
+            # create a fresh one from the entered password. The vault itself
+            # will prove the password is correct when it decrypts.
+            with open("master.json", "w") as f:
+                json.dump({"master": hash_password(entered), "kdf_salt": server_kdf_salt}, f)
+
+            load_vault(cipher)
+            messagebox.showinfo("Restored", "Vault restored successfully.")
+            return True
+
+        else:
+            # Genuine first-time setup.
+            messagebox.showinfo("Welcome", "No master password found. Let's create one.")
+            new_pass = simpledialog.askstring("Setup", "Create a master password:", show="*")
+            if not new_pass:
+                window.destroy()
+                return False
+
+            confirm = simpledialog.askstring("Setup", "Confirm master password:", show="*")
+            if new_pass != confirm:
+                messagebox.showerror("Error", "Passwords do not match.")
+                window.destroy()
+                return False
+
+            kdf_salt = os.urandom(16)
+            with open("master.json", "w") as f:
+                json.dump({"master": hash_password(new_pass), "kdf_salt": kdf_salt.hex()}, f)
+
+            cipher = make_key(new_pass, kdf_salt)
+            setup_vault(cipher, hash_password(new_pass))
+            messagebox.showinfo("Success", "Master password set. Welcome!")
+            return True
 
 # ---------------------------- FUNCTIONS ------------------------------- #
 def update_cipher(new_key):
@@ -219,44 +288,64 @@ window.deiconify()
 session = SessionManager(window, verify_master)
 
 
+def _ts(value):
+    """Normalise a timestamp string for comparison.
+    Strips timezone suffix so SQLite and PostgreSQL timestamps compare cleanly."""
+    return str(value or "").replace("+00:00", "").replace("Z", "").strip()
+
+
 def startup_sync_check():
-    """Run in a background thread. If the server has a newer vault,
-    prompt the user on the main thread via window.after."""
+    """Run in a background thread after login.
+    - Server newer than last sync → prompt to download
+    - Local vault modified after last sync → upload silently
+    - No vault on server yet → upload silently"""
     if not api_client.is_logged_in():
         return
 
     status, code = api_client.get_vault_status()
 
     if code == 0 or status is None:
-        return  # server unreachable — silent, offline use continues normally
+        return  # server unreachable — offline use continues normally
 
     if code == 401:
-        return  # token expired — user will be prompted next time they open Settings > Sync
+        return  # token expired — user will be prompted via Settings > Sync
 
     if not status.get("has_vault"):
-        # No vault on server yet — upload current local vault silently.
+        # No vault on server yet — upload silently.
         api_client.upload_vault()
         return
 
-    server_modified = status.get("last_modified", "")
-    last_synced = api_client.get_last_synced() or ""
+    server_modified = _ts(status.get("last_modified"))
+    last_synced = _ts(api_client.get_last_synced())
 
     if server_modified > last_synced:
         # Server is newer — prompt user on main thread.
         def prompt():
             answer = messagebox.askyesno(
                 "Vault Updated",
-                f"Your vault was updated on another device.\n\n"
-                f"Download the latest version?\n"
-                f"(Your local copy will be replaced.)"
+                "Your vault was updated on another device.\n\n"
+                "Download the latest version?\n"
+                "(Your local copy will be replaced.)"
             )
             if answer:
                 success, err = api_client.download_vault()
                 if success:
-                    messagebox.showinfo("Synced", "Vault updated. Please restart VaultKit.")
+                    load_vault(cipher)
+                    messagebox.showinfo("Synced", "Vault updated successfully.")
                 else:
                     messagebox.showerror("Sync Failed", err or "Could not download vault.")
         window.after(0, prompt)
+
+    elif os.path.exists("vaultkit.bin"):
+        # Check if local vault was modified after the last sync.
+        local_mtime = _ts(
+            datetime.datetime.utcfromtimestamp(
+                os.path.getmtime("vaultkit.bin")
+            ).strftime("%Y-%m-%d %H:%M:%S")
+        )
+        if local_mtime > last_synced:
+            # Local is newer — upload silently in the background.
+            api_client.upload_vault()
 
 
 threading.Thread(target=startup_sync_check, daemon=True).start()

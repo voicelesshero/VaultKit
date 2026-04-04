@@ -7,8 +7,7 @@ import hashlib
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
-# Change this to your deployed server URL when hosting publicly.
-API_BASE_URL = "http://127.0.0.1:5000"
+API_BASE_URL = "https://vaultkit-production.up.railway.app"
 SYNC_CONFIG_PATH = "sync_config.json"
 VAULT_PATH = "vaultkit.bin"
 
@@ -130,11 +129,22 @@ def upload_vault():
         data = {}
         if last_known:
             data["last_known_modified"] = last_known
+        # Include kdf_salt so new devices can derive the correct key.
+        try:
+            with open("master.json") as f:
+                data["kdf_salt"] = json.load(f).get("kdf_salt", "")
+        except FileNotFoundError:
+            pass
 
         r = requests.post(f"{API_BASE_URL}/vault", files=files, data=data,
                           headers=_auth_headers(), timeout=30)
         if r.status_code == 200:
             _update_sync_timestamps(r.json()["last_modified"])
+            # Persist kdf_salt locally so the restore flow works on new devices.
+            if data.get("kdf_salt"):
+                cfg = load_sync_config()
+                cfg["kdf_salt"] = data["kdf_salt"]
+                save_sync_config(cfg)
         return r.json(), r.status_code
     except requests.exceptions.ConnectionError:
         return {"error": "Could not reach sync server."}, 0
@@ -159,6 +169,13 @@ def download_vault():
             with open(VAULT_PATH, "wb") as f:
                 f.write(vault_bytes)
 
+            # Save kdf_salt from response so new devices can reconstruct master.json.
+            kdf_salt = r.headers.get("X-KDF-Salt")
+            if kdf_salt:
+                cfg = load_sync_config()
+                cfg["kdf_salt"] = kdf_salt
+                save_sync_config(cfg)
+
             # Re-check status to get the authoritative last_modified timestamp.
             status, code = get_vault_status()
             if code == 200 and status:
@@ -179,9 +196,19 @@ def force_upload_after_rekey():
         with open(VAULT_PATH, "rb") as f:
             vault_data = f.read()
         files = {"vault": ("vaultkit.bin", vault_data, "application/octet-stream")}
-        r = requests.post(f"{API_BASE_URL}/vault", files=files,
+        data = {}
+        try:
+            with open("master.json") as f:
+                data["kdf_salt"] = json.load(f).get("kdf_salt", "")
+        except FileNotFoundError:
+            pass
+        r = requests.post(f"{API_BASE_URL}/vault", files=files, data=data,
                           headers=_auth_headers(), timeout=30)
         if r.status_code == 200:
             _update_sync_timestamps(r.json()["last_modified"])
+            if data.get("kdf_salt"):
+                cfg = load_sync_config()
+                cfg["kdf_salt"] = data["kdf_salt"]
+                save_sync_config(cfg)
     except Exception:
         pass  # rekey succeeded locally regardless; user can sync manually
