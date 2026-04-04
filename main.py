@@ -313,35 +313,25 @@ def startup_sync_check():
     - Server newer than last sync → prompt to download
     - Local vault modified after last sync → upload silently
     - No vault on server yet → upload silently"""
-    print("[sync] startup_sync_check() called")
-
     if not api_client.is_logged_in():
-        print("[sync] not logged in — skipping")
         return
 
     status, code = api_client.get_vault_status()
-    print(f"[sync] get_vault_status() → code={code}, status={status}")
 
     if code == 0 or status is None:
-        print("[sync] server unreachable — skipping")
         return  # server unreachable — offline use continues normally
 
     if code == 401:
-        print("[sync] 401 — token expired, skipping")
         return  # token expired — user will be prompted via Settings > Sync
 
     if not status.get("has_vault"):
-        print("[sync] no vault on server — uploading")
         api_client.upload_vault()
         return
 
     server_modified = _ts(status.get("last_modified"))
     last_synced = _ts(api_client.get_last_synced())
-    print(f"[sync] server_modified = {server_modified!r}")
-    print(f"[sync] last_synced     = {last_synced!r}")
 
     if server_modified > last_synced:
-        print("[sync] server is newer — prompting download")
         # Server is newer — prompt user on main thread.
         def prompt():
             answer = messagebox.askyesno(
@@ -366,17 +356,10 @@ def startup_sync_check():
                 os.path.getmtime("vaultkit.bin"), datetime.UTC
             ).strftime("%Y-%m-%d %H:%M:%S")
         )
-        print(f"[sync] local_mtime     = {local_mtime!r}")
-        print(f"[sync] local > synced? = {local_mtime > last_synced}")
         if local_mtime > last_synced:
-            print("[sync] local is newer — uploading silently")
             api_client.upload_vault()
             if sync_refresh_callback:
                 window.after(0, sync_refresh_callback)
-        else:
-            print("[sync] vault is up to date — nothing to do")
-    else:
-        print("[sync] vaultkit.bin not found — nothing to do")
 
 
 threading.Thread(target=startup_sync_check, daemon=True).start()
