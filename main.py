@@ -17,6 +17,7 @@ from session import SessionManager
 from entry_selector import open_entry_selector
 from emergency import open_emergency_form
 from profile import open_profile_form, get_profile_defaults
+from settings import open_settings
 
 ph = PasswordHasher()
 
@@ -256,10 +257,9 @@ def refresh_greeting():
 
 settings_btn = Button(header_frame, text="⚙", bg=BG_COLOR, fg=LABEL_FG, relief="flat",
                       font=("Helvetica", 14), cursor="hand2",
-                      command=lambda: [open_profile_form(window, cipher, BG_COLOR, ENTRY_BG,
-                                                         ENTRY_FG, LABEL_FG, BTN_BG, BTN_FG,
-                                                         BTN_ACCENT, FONT, FONT_BOLD),
-                                       window.after(500, refresh_greeting)])
+                      command=lambda: open_settings(window, cipher, BG_COLOR, ENTRY_BG,
+                                                    ENTRY_FG, LABEL_FG, BTN_BG, BTN_FG,
+                                                    BTN_ACCENT, FONT, FONT_BOLD))
 settings_btn.pack(side="right")
 
 # ---------------------------- SEARCH BAR ------------------------------- #
