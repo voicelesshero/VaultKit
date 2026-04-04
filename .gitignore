@@ -1,6 +1,8 @@
 data.bin
 vaultkit.bin
+vaultkit.db
 master.json
+sync_config.json
 dist/
 build/
 *.spec
@@ -9,4 +11,6 @@ __pycache__/
 *.pyc
 .idea/
 api/server.db
+api/.env
+.env
 .claude/
