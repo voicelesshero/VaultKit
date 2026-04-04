@@ -15,7 +15,8 @@ VERSION = "1.5.1"
 
 
 def open_settings(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
-                  BTN_BG, BTN_FG, BTN_ACCENT, FONT, FONT_BOLD, on_rekey=None):
+                  BTN_BG, BTN_FG, BTN_ACCENT, FONT, FONT_BOLD, on_rekey=None,
+                  on_sync_refresh=None):
 
     win = Toplevel(window)
     win.title("Settings")
@@ -297,6 +298,11 @@ def open_settings(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
                 row=1, column=1, sticky="ew", ipady=5)
 
     build_sync_ui()
+
+    # Register build_sync_ui so background sync can refresh the timestamp.
+    if on_sync_refresh:
+        on_sync_refresh(build_sync_ui)
+        win.protocol("WM_DELETE_WINDOW", lambda: (on_sync_refresh(None), win.destroy()))
 
     # ---------------------------- ABOUT ------------------------------- #
     section_label("About", 11)
