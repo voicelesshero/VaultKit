@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(py -3 -m pip install flask-jwt-extended)"
-    ]
-  }
-}
