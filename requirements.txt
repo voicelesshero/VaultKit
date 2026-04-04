@@ -3,4 +3,6 @@ pyperclip
 argon2-cffi
 flask
 flask-jwt-extended
+flask-limiter
+python-dotenv
 requests
