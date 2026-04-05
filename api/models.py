@@ -67,11 +67,11 @@ def init_db():
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """)
-        try:
-            c.execute("ALTER TABLE vaults ADD COLUMN kdf_salt TEXT")
-            conn.commit()
-        except Exception:
-            pass
+        # Idempotent column migrations for databases created before these
+        # columns were added. IF NOT EXISTS is a no-op when they already
+        # exist, so this never aborts the transaction on redeploy.
+        c.execute("ALTER TABLE vaults ADD COLUMN IF NOT EXISTS checksum TEXT")
+        c.execute("ALTER TABLE vaults ADD COLUMN IF NOT EXISTS kdf_salt TEXT")
     else:
         c.execute("""
             CREATE TABLE IF NOT EXISTS users (
