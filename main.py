@@ -62,121 +62,296 @@ def verify_password(stored_hash, entered_password):
         return False
 
 def check_master_password():
+    """Entry point for first-run and login routing.
+
+    Routes based on which local files exist:
+      master.json present          → normal login
+      master.json missing,
+        sync_config.json present   → restore from sync (token + kdf_salt already saved)
+      nothing exists               → welcome dialog (create / sign-in / offline)
+    """
+    has_master = os.path.exists("master.json")
+    has_sync   = os.path.exists("sync_config.json")
+
+    if has_master:
+        return _do_login()
+    elif has_sync:
+        return _do_restore_from_sync()
+    else:
+        return _do_welcome()
+
+
+# ------------------------------------------------------------------ #
+# Login — master.json exists                                          #
+# ------------------------------------------------------------------ #
+def _do_login():
     global cipher
-    try:
-        with open("master.json", "r") as f:
-            stored = json.load(f)
+    with open("master.json", "r") as f:
+        stored = json.load(f)
 
-        entered = simpledialog.askstring("Login", "Enter master password:", show="*")
-        if entered is None:
+    entered = simpledialog.askstring("VaultKit", "Enter master password:", show="*")
+    if entered is None:
+        window.destroy()
+        return False
+
+    if not verify_password(stored["master"], entered):
+        messagebox.showerror("Access Denied", "Incorrect master password.")
+        window.destroy()
+        return False
+
+    salt = bytes.fromhex(stored["kdf_salt"])
+    cipher = make_key(entered, salt)
+
+    # If the vault file is missing but the user has a sync account, download now.
+    if not os.path.exists("vaultkit.bin") and api_client.is_logged_in():
+        status, code = api_client.get_vault_status()
+        if code == 200 and status and status.get("has_vault"):
+            success, err = api_client.download_vault()
+            if not success:
+                messagebox.showwarning(
+                    "Sync",
+                    f"Could not download vault from server: {err}\n\n"
+                    "Opening with empty vault. You can sync manually from Settings."
+                )
+
+    load_vault(cipher)
+    return True
+
+
+# ------------------------------------------------------------------ #
+# Restore — sync_config.json exists but master.json is missing        #
+# ------------------------------------------------------------------ #
+def _do_restore_from_sync():
+    global cipher
+    sync_cfg = api_client.load_sync_config()
+    server_kdf_salt = sync_cfg.get("kdf_salt")
+
+    # kdf_salt may not be cached locally yet — fetch live if needed.
+    if api_client.is_logged_in() and not server_kdf_salt:
+        status, code = api_client.get_vault_status()
+        if code == 200 and status and status.get("kdf_salt"):
+            server_kdf_salt = status["kdf_salt"]
+            sync_cfg["kdf_salt"] = server_kdf_salt
+            api_client.save_sync_config(sync_cfg)
+
+    if not api_client.is_logged_in() or not server_kdf_salt:
+        # sync_config exists but token is expired / missing kdf_salt.
+        # Fall through to welcome so the user can sign in again.
+        return _do_welcome()
+
+    messagebox.showinfo(
+        "Restore Vault",
+        "No local vault found.\nEnter your master password to restore from sync."
+    )
+    entered = simpledialog.askstring("Restore", "Enter master password:", show="*")
+    if not entered:
+        window.destroy()
+        return False
+
+    kdf_salt = bytes.fromhex(server_kdf_salt)
+    cipher = make_key(entered, kdf_salt)
+
+    status, code = api_client.get_vault_status()
+    if code == 200 and status and status.get("has_vault"):
+        success, err = api_client.download_vault()
+        if not success:
+            messagebox.showerror("Restore Failed", err or "Could not download vault.")
             window.destroy()
             return False
+    else:
+        messagebox.showerror("Restore Failed", "No vault found on server.")
+        window.destroy()
+        return False
 
-        if not verify_password(stored["master"], entered):
-            messagebox.showerror("Access Denied", "Incorrect master password.")
+    with open("master.json", "w") as f:
+        json.dump({"master": hash_password(entered), "kdf_salt": server_kdf_salt}, f)
+
+    load_vault(cipher)
+    messagebox.showinfo("Restored", "Vault restored successfully.")
+    return True
+
+
+# ------------------------------------------------------------------ #
+# Sign-in flow — authenticate with sync, then decrypt vault           #
+# ------------------------------------------------------------------ #
+def _do_sign_in_to_account():
+    """Prompt for sync credentials, fetch kdf_salt, then prompt for
+    master password and download vault. Returns True on success."""
+    dialog = Toplevel(window)
+    dialog.title("Sign In to Sync Account")
+    dialog.config(padx=40, pady=30, bg=BG_COLOR)
+    dialog.resizable(False, False)
+    dialog.grab_set()
+
+    Label(dialog, text="Sync Email:", bg=BG_COLOR, fg=LABEL_FG, font=FONT).grid(
+        row=0, column=0, sticky="e", padx=(0, 10), pady=6)
+    email_entry = Entry(dialog, width=30, bg=ENTRY_BG, fg=ENTRY_FG,
+                        insertbackground=ENTRY_FG, relief="flat", font=FONT)
+    email_entry.grid(row=0, column=1, ipady=5, pady=6)
+
+    Label(dialog, text="Sync Password:", bg=BG_COLOR, fg=LABEL_FG, font=FONT).grid(
+        row=1, column=0, sticky="e", padx=(0, 10), pady=6)
+    sync_pw_entry = Entry(dialog, width=30, bg=ENTRY_BG, fg=ENTRY_FG,
+                          insertbackground=ENTRY_FG, relief="flat", font=FONT, show="*")
+    sync_pw_entry.grid(row=1, column=1, ipady=5, pady=6)
+
+    status_label = Label(dialog, text="", bg=BG_COLOR, fg="#e74c3c", font=FONT)
+    status_label.grid(row=2, column=0, columnspan=2, pady=(4, 0))
+
+    result = {"success": False}
+
+    def attempt_sign_in():
+        email    = email_entry.get().strip()
+        sync_pw  = sync_pw_entry.get()
+
+        if not email or not sync_pw:
+            status_label.config(text="Email and password are required.")
+            return
+
+        status_label.config(text="Signing in...", fg=LABEL_FG)
+        dialog.update_idletasks()
+
+        data, code = api_client.login(email, sync_pw)
+        if code != 200:
+            status_label.config(
+                text=data.get("error", "Sign in failed."), fg="#e74c3c")
+            return
+
+        # Fetch kdf_salt from server so we can derive the vault key.
+        vault_status, vcode = api_client.get_vault_status()
+        if vcode != 200 or not vault_status:
+            status_label.config(text="Could not reach server. Try again.", fg="#e74c3c")
+            return
+
+        server_kdf_salt = vault_status.get("kdf_salt")
+        if not server_kdf_salt:
+            status_label.config(
+                text="No vault found for this account.", fg="#e74c3c")
+            return
+
+        # Persist kdf_salt locally so future restores work without sign-in.
+        cfg = api_client.load_sync_config()
+        cfg["kdf_salt"] = server_kdf_salt
+        api_client.save_sync_config(cfg)
+
+        dialog.destroy()
+
+        # Now prompt for the master password to decrypt the downloaded vault.
+        entered = simpledialog.askstring(
+            "Master Password",
+            "Sync account verified.\nEnter your master password to decrypt your vault:",
+            show="*"
+        )
+        if not entered:
             window.destroy()
-            return False
+            return
 
-        salt = bytes.fromhex(stored["kdf_salt"])
-        cipher = make_key(entered, salt)
+        global cipher
+        kdf_salt = bytes.fromhex(server_kdf_salt)
+        cipher = make_key(entered, kdf_salt)
 
-        # If the local vault file is missing but the user has a sync account,
-        # download it now before loading — blocking is fine here since the
-        # user is already waiting at the login screen.
-        if not os.path.exists("vaultkit.bin") and api_client.is_logged_in():
-            status, code = api_client.get_vault_status()
-            if code == 200 and status and status.get("has_vault"):
-                success, err = api_client.download_vault()
-                if not success:
-                    messagebox.showwarning(
-                        "Sync",
-                        f"Could not download vault from server: {err}\n\n"
-                        "Opening with empty vault. You can sync manually from Settings."
-                    )
+        if vault_status.get("has_vault"):
+            success, err = api_client.download_vault()
+            if not success:
+                messagebox.showerror("Restore Failed", err or "Could not download vault.")
+                window.destroy()
+                return
+        else:
+            messagebox.showerror("No Vault", "No vault found on server for this account.")
+            window.destroy()
+            return
+
+        with open("master.json", "w") as f:
+            json.dump({"master": hash_password(entered), "kdf_salt": server_kdf_salt}, f)
 
         load_vault(cipher)
-        return True
+        messagebox.showinfo("Welcome Back", "Vault restored successfully.")
+        result["success"] = True
 
-    except FileNotFoundError:
-        # No master.json on this device. Check if this is a new device
-        # restoring from sync, or a genuine first-time setup.
-        sync_cfg = api_client.load_sync_config()
-        server_kdf_salt = sync_cfg.get("kdf_salt")
+    Button(dialog, text="Sign In", bg=BTN_BG, fg=BTN_FG, relief="flat",
+           font=FONT_BOLD, cursor="hand2", command=attempt_sign_in).grid(
+        row=3, column=0, columnspan=2, sticky="ew", pady=(14, 4), ipady=6)
 
-        # kdf_salt may not be in sync_config yet (pre-feature upload).
-        # Fetch it live from the server status endpoint.
-        if api_client.is_logged_in() and not server_kdf_salt:
-            status, code = api_client.get_vault_status()
-            if code == 200 and status and status.get("kdf_salt"):
-                server_kdf_salt = status["kdf_salt"]
-                sync_cfg["kdf_salt"] = server_kdf_salt
-                api_client.save_sync_config(sync_cfg)
+    Button(dialog, text="Cancel", bg=ENTRY_BG, fg=LABEL_FG, relief="flat",
+           font=FONT, cursor="hand2", command=dialog.destroy).grid(
+        row=4, column=0, columnspan=2, sticky="ew", ipady=4)
 
-        if api_client.is_logged_in() and server_kdf_salt:
-            # New device with an existing sync account — restore flow.
-            messagebox.showinfo(
-                "Restore Vault",
-                "No local vault found. Enter your master password to restore from sync."
-            )
-            entered = simpledialog.askstring("Restore", "Enter master password:", show="*")
-            if not entered:
-                window.destroy()
-                return False
+    dialog.wait_window()
+    return result["success"]
 
-            kdf_salt = bytes.fromhex(server_kdf_salt)
-            cipher = make_key(entered, kdf_salt)
 
-            # Download the vault — decryption will reveal if the password is correct.
-            status, code = api_client.get_vault_status()
-            if code == 200 and status and status.get("has_vault"):
-                success, err = api_client.download_vault()
-                if not success:
-                    messagebox.showerror("Restore Failed", err or "Could not download vault.")
-                    window.destroy()
-                    return False
-            else:
-                messagebox.showerror("Restore Failed", "No vault found on server.")
-                window.destroy()
-                return False
+# ------------------------------------------------------------------ #
+# Welcome — no local files at all                                     #
+# ------------------------------------------------------------------ #
+def _do_welcome():
+    """Show a three-option welcome dialog for first-run scenarios."""
+    result = {"choice": None}
 
-            # Reconstruct master.json — we don't have the Argon2 hash so we
-            # create a fresh one from the entered password. The vault itself
-            # will prove the password is correct when it decrypts.
-            with open("master.json", "w") as f:
-                json.dump({"master": hash_password(entered), "kdf_salt": server_kdf_salt}, f)
+    dialog = Toplevel(window)
+    dialog.title("Welcome to VaultKit")
+    dialog.config(padx=50, pady=40, bg=BG_COLOR)
+    dialog.resizable(False, False)
+    dialog.grab_set()
 
-            load_vault(cipher)
-            messagebox.showinfo("Restored", "Vault restored successfully.")
-            return True
+    Label(dialog, text="Welcome to VaultKit", bg=BG_COLOR, fg=ENTRY_FG,
+          font=FONT_BOLD).pack(pady=(0, 6))
+    Label(dialog, text="Your secure personal vault.", bg=BG_COLOR, fg=LABEL_FG,
+          font=FONT).pack(pady=(0, 24))
 
-        else:
-            # Genuine first-time setup.
-            # TODO (future): Add a "Recover from sync account" button here for the case
-            # where ALL local files (including sync_config.json) have been deleted.
-            # Flow: user enters sync email + password → POST /auth/login to get token →
-            # GET /vault/status to fetch kdf_salt → derive key → download vault.
-            # This branch currently falls through to first-time setup when sync_config
-            # is absent, so the entry point would be a new button on this welcome dialog.
-            messagebox.showinfo("Welcome", "No master password found. Let's create one.")
-            new_pass = simpledialog.askstring("Setup", "Create a master password:", show="*")
-            if not new_pass:
-                window.destroy()
-                return False
+    def choose(option):
+        result["choice"] = option
+        dialog.destroy()
 
-            confirm = simpledialog.askstring("Setup", "Confirm master password:", show="*")
-            if new_pass != confirm:
-                messagebox.showerror("Error", "Passwords do not match.")
-                window.destroy()
-                return False
+    Button(dialog, text="Create New Vault",
+           bg=BTN_BG, fg=BTN_FG, relief="flat", font=FONT_BOLD, cursor="hand2",
+           command=lambda: choose("create")).pack(fill="x", pady=(0, 8), ipady=8)
 
-            kdf_salt = os.urandom(16)
-            with open("master.json", "w") as f:
-                json.dump({"master": hash_password(new_pass), "kdf_salt": kdf_salt.hex()}, f)
+    Button(dialog, text="Sign In to Existing Account",
+           bg=BTN_ACCENT, fg=BTN_FG, relief="flat", font=FONT_BOLD, cursor="hand2",
+           command=lambda: choose("signin")).pack(fill="x", pady=(0, 8), ipady=8)
 
-            cipher = make_key(new_pass, kdf_salt)
-            setup_vault(cipher, hash_password(new_pass))
-            messagebox.showinfo("Success", "Master password set. Welcome!")
-            return True
+    Button(dialog, text="Use Without Sync",
+           bg=ENTRY_BG, fg=LABEL_FG, relief="flat", font=FONT, cursor="hand2",
+           command=lambda: choose("offline")).pack(fill="x", ipady=6)
+
+    dialog.wait_window()
+
+    if result["choice"] == "signin":
+        return _do_sign_in_to_account()
+
+    if result["choice"] in ("create", "offline"):
+        return _do_create_new_vault()
+
+    # User closed the dialog.
+    window.destroy()
+    return False
+
+
+# ------------------------------------------------------------------ #
+# Create new vault — first-time setup                                 #
+# ------------------------------------------------------------------ #
+def _do_create_new_vault():
+    global cipher
+
+    new_pass = simpledialog.askstring("Setup", "Create a master password:", show="*")
+    if not new_pass:
+        window.destroy()
+        return False
+
+    confirm = simpledialog.askstring("Setup", "Confirm master password:", show="*")
+    if new_pass != confirm:
+        messagebox.showerror("Error", "Passwords do not match.")
+        window.destroy()
+        return False
+
+    kdf_salt = os.urandom(16)
+    with open("master.json", "w") as f:
+        json.dump({"master": hash_password(new_pass), "kdf_salt": kdf_salt.hex()}, f)
+
+    cipher = make_key(new_pass, kdf_salt)
+    setup_vault(cipher, hash_password(new_pass))
+    messagebox.showinfo("Success", "Master password set. Welcome to VaultKit!")
+    return True
 
 # ---------------------------- FUNCTIONS ------------------------------- #
 def update_cipher(new_key):
@@ -300,6 +475,64 @@ if not check_master_password():
 
 window.deiconify()
 session = SessionManager(window, verify_master)
+
+# Register the sync re-authentication prompt now that the window exists.
+# Called by api_client from a background thread when a 401 is received.
+def _reauth_prompt(email):
+    """Show a 'session expired' dialog on the main thread, block the calling
+    background thread until the user responds, return password or None."""
+    result = {"password": None}
+    event = threading.Event()
+
+    def show():
+        dialog = Toplevel(window)
+        dialog.title("Sync Session Expired")
+        dialog.config(padx=30, pady=24, bg=BG_COLOR)
+        dialog.resizable(False, False)
+        dialog.grab_set()
+
+        Label(dialog, text="Your sync session has expired.",
+              bg=BG_COLOR, fg=ENTRY_FG, font=FONT_BOLD).pack(pady=(0, 4))
+        Label(dialog, text=f"Re-enter your sync password for:",
+              bg=BG_COLOR, fg=LABEL_FG, font=FONT).pack()
+        Label(dialog, text=email, bg=BG_COLOR, fg=BTN_ACCENT,
+              font=FONT_BOLD).pack(pady=(0, 12))
+
+        pw_entry = Entry(dialog, width=28, bg=ENTRY_BG, fg=ENTRY_FG,
+                         insertbackground=ENTRY_FG, relief="flat", font=FONT, show="*")
+        pw_entry.pack(ipady=5, pady=(0, 4))
+        pw_entry.focus_set()
+
+        err_label = Label(dialog, text="", bg=BG_COLOR, fg="#e74c3c", font=FONT)
+        err_label.pack(pady=(0, 10))
+
+        def confirm():
+            pw = pw_entry.get()
+            if not pw:
+                err_label.config(text="Password is required.")
+                return
+            result["password"] = pw
+            dialog.destroy()
+            event.set()
+
+        def cancel():
+            dialog.destroy()
+            event.set()
+
+        Button(dialog, text="Reconnect", bg=BTN_BG, fg=BTN_FG, relief="flat",
+               font=FONT_BOLD, cursor="hand2", command=confirm).pack(
+            fill="x", pady=(0, 6), ipady=6)
+        Button(dialog, text="Cancel", bg=ENTRY_BG, fg=LABEL_FG, relief="flat",
+               font=FONT, cursor="hand2", command=cancel).pack(fill="x", ipady=4)
+
+        dialog.protocol("WM_DELETE_WINDOW", cancel)
+        pw_entry.bind("<Return>", lambda e: confirm())
+
+    window.after(0, show)
+    event.wait()          # block background thread until dialog closes
+    return result["password"]
+
+api_client.set_reauth_prompt(_reauth_prompt)
 
 
 def _ts(value):

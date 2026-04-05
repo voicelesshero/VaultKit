@@ -2,6 +2,7 @@ import requests
 import json
 import os
 import hashlib
+import threading
 
 
 def _sha256(data: bytes) -> str:
@@ -54,6 +55,48 @@ def _update_sync_timestamps(last_modified):
     save_sync_config(config)
 
 
+# ------------------------------------------------------------------ #
+# Token refresh                                                        #
+# ------------------------------------------------------------------ #
+
+# Set by main.py after the Tk window is ready.
+# Signature: fn(email: str) -> password_str | None
+# Must be safe to call from a background thread — the implementation
+# uses window.after() + threading.Event to marshal to the main thread.
+_reauth_prompt_fn = None
+_reauth_lock = threading.Lock()
+
+
+def set_reauth_prompt(fn):
+    global _reauth_prompt_fn
+    _reauth_prompt_fn = fn
+
+
+def _try_reauthenticate():
+    """Prompt for sync password and refresh the stored token.
+    Thread-safe — only one prompt dialog shown at a time.
+    Returns True if a fresh token was saved, False otherwise."""
+    with _reauth_lock:
+        email = get_account_email()
+        if not email or not _reauth_prompt_fn:
+            return False
+        password = _reauth_prompt_fn(email)
+        if not password:
+            return False
+        _, code = login(email, password)
+        return code == 200
+
+
+def _with_token_refresh(make_request):
+    """Call make_request() which must return a requests.Response.
+    If the response is 401, attempt token refresh and retry once.
+    Returns the final requests.Response."""
+    r = make_request()
+    if r.status_code == 401 and _try_reauthenticate():
+        r = make_request()
+    return r
+
+
 # ---------------------------- AUTH ------------------------------- #
 
 def register(email, password):
@@ -104,8 +147,10 @@ def get_vault_status():
     """Check server vault metadata. Returns (data_dict, status_code).
     status_code 0 means server is unreachable."""
     try:
-        r = requests.get(f"{API_BASE_URL}/vault/status",
-                         headers=_auth_headers(), timeout=10)
+        r = _with_token_refresh(
+            lambda: requests.get(f"{API_BASE_URL}/vault/status",
+                                 headers=_auth_headers(), timeout=10)
+        )
         return r.json(), r.status_code
     except requests.exceptions.ConnectionError:
         return None, 0
@@ -125,7 +170,6 @@ def upload_vault():
         with open(VAULT_PATH, "rb") as f:
             vault_data = f.read()
 
-        files = {"vault": ("vaultkit.bin", vault_data, "application/octet-stream")}
         data = {}
         if last_known:
             data["last_known_modified"] = last_known
@@ -136,8 +180,11 @@ def upload_vault():
         except FileNotFoundError:
             pass
 
-        r = requests.post(f"{API_BASE_URL}/vault", files=files, data=data,
-                          headers=_auth_headers(), timeout=30)
+        r = _with_token_refresh(
+            lambda: requests.post(f"{API_BASE_URL}/vault", files={
+                "vault": ("vaultkit.bin", vault_data, "application/octet-stream")
+            }, data=data, headers=_auth_headers(), timeout=30)
+        )
         if r.status_code == 200:
             _update_sync_timestamps(r.json()["last_modified"])
             # Persist kdf_salt locally so the restore flow works on new devices.
@@ -155,8 +202,10 @@ def download_vault():
     Verifies the SHA256 checksum from the response header before writing.
     Returns (success: bool, error_message: str | None)."""
     try:
-        r = requests.get(f"{API_BASE_URL}/vault",
-                         headers=_auth_headers(), timeout=30)
+        r = _with_token_refresh(
+            lambda: requests.get(f"{API_BASE_URL}/vault",
+                                 headers=_auth_headers(), timeout=30)
+        )
         if r.status_code == 200:
             vault_bytes = r.content
             expected_checksum = r.headers.get("X-Vault-Checksum")
@@ -202,8 +251,11 @@ def force_upload_after_rekey():
                 data["kdf_salt"] = json.load(f).get("kdf_salt", "")
         except FileNotFoundError:
             pass
-        r = requests.post(f"{API_BASE_URL}/vault", files=files, data=data,
-                          headers=_auth_headers(), timeout=30)
+        r = _with_token_refresh(
+            lambda: requests.post(f"{API_BASE_URL}/vault", files={
+                "vault": ("vaultkit.bin", vault_data, "application/octet-stream")
+            }, data=data, headers=_auth_headers(), timeout=30)
+        )
         if r.status_code == 200:
             _update_sync_timestamps(r.json()["last_modified"])
             if data.get("kdf_salt"):
