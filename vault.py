@@ -122,6 +122,7 @@ def get_entry(cipher, label):
     """Returns a flat dict of fields for a given label, same as before."""
     user = get_user(cipher)
     if not user:
+        print(f"[get_entry] no user found in vault — cannot look up label={label!r}")
         return None
     user_id = user[0]
 
@@ -129,17 +130,22 @@ def get_entry(cipher, label):
     decrypt_db(cipher)
     conn = get_connection()
     c = conn.cursor()
+    c.execute("SELECT id, entry_type, label FROM entries WHERE user_id=?", (user_id,))
+    all_rows = c.fetchall()
+    print(f"[get_entry] all entries for user_id={user_id}: {[(r[0], r[1], r[2]) for r in all_rows]}")
     c.execute("SELECT id FROM entries WHERE user_id=? AND label=?", (user_id, label))
     row = c.fetchone()
     conn.close()
     encrypt_db(cipher)
 
     if not row:
+        print(f"[get_entry] label={label!r} NOT FOUND for user_id={user_id}")
         return None
 
     entry, fields = db_get_entry(cipher, row[0])
-    fields["type"] = entry[2]  # entry_type column
-    fields["category"] = entry[3]  # category column
+    fields["type"] = entry[2]
+    fields["category"] = entry[3]
+    print(f"[get_entry] label={label!r} found — fields: {list(fields.keys())}")
     return fields
 
 
