@@ -109,13 +109,51 @@ def add_entry(cipher, entry_type, entry_id, fields_dict):
     """
     Maintains compatibility with existing form code.
     entry_id becomes the label in the new schema.
+
+    Emergency entries are a singleton: label is always 'emergency'.
+    If one already exists (regardless of what label it was stored under),
+    it is updated in place and any duplicates are removed.
     """
     user = get_user(cipher)
     if not user:
         return
     user_id = user[0]
     category = fields_dict.pop("category", "Personal")
+
+    if entry_type == "emergency":
+        _upsert_emergency(cipher, user_id, category, fields_dict)
+        return
+
     db_add_entry(cipher, user_id, entry_type, category, entry_id, fields_dict)
+
+
+def _upsert_emergency(cipher, user_id, category, fields_dict):
+    """Find any existing emergency entry, update it, and delete duplicates."""
+    from database import decrypt_db, encrypt_db, get_connection
+    decrypt_db(cipher)
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "SELECT id FROM entries WHERE user_id=? AND entry_type='emergency' ORDER BY id ASC",
+        (user_id,)
+    )
+    rows = c.fetchall()
+    conn.close()
+    encrypt_db(cipher)
+
+    if not rows:
+        # No existing emergency entry — insert one with canonical label.
+        db_add_entry(cipher, user_id, "emergency", category, "emergency", fields_dict)
+        return
+
+    # Keep the oldest entry, update it with canonical label + new fields.
+    canonical_id = rows[0][0]
+    db_update_entry(cipher, canonical_id, label="emergency", fields_dict=fields_dict)
+
+    # Delete any duplicates (entries after the first).
+    for row in rows[1:]:
+        print(f"[upsert_emergency] removing duplicate emergency entry id={row[0]}")
+        db_delete_entry(cipher, row[0])
 
 
 def get_entry(cipher, label):

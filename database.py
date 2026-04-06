@@ -291,8 +291,10 @@ def update_entry(cipher, entry_id, label=None, category=None, fields_dict=None):
     if fields_dict:
         for field_name, field_value in fields_dict.items():
             c.execute("""
-                UPDATE fields SET field_value=? WHERE entry_id=? AND field_name=?
-            """, (str(field_value), entry_id, field_name))
+                INSERT INTO fields (entry_id, field_name, field_value)
+                VALUES (?, ?, ?)
+                ON CONFLICT(entry_id, field_name) DO UPDATE SET field_value=excluded.field_value
+            """, (entry_id, field_name, str(field_value)))
 
     conn.commit()
     conn.close()

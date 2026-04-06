@@ -1,6 +1,6 @@
 from tkinter import *
 from tkinter import messagebox
-from vault import add_entry, get_entry, update_entry
+from vault import add_entry, get_entry
 from profile import get_profile_defaults
 
 # Fields that need multiline text boxes
@@ -79,10 +79,8 @@ def open_emergency_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, 
             )
             return
 
-        if existing:
-            update_entry(cipher, "emergency", data)
-        else:
-            add_entry(cipher, "emergency", "emergency", data)
+        # Always route through add_entry — it upserts and deduplicates.
+        add_entry(cipher, "emergency", "emergency", data)
 
         messagebox.showinfo("Saved", "Emergency info saved successfully.")
         form.destroy()
