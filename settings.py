@@ -3,6 +3,7 @@ from tkinter import messagebox
 import json
 import os
 import threading
+import datetime
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from profile import open_profile_form
@@ -12,6 +13,30 @@ import session as session_module
 
 ph = PasswordHasher()
 VERSION = "1.5.1"
+
+
+def _fmt_last_synced(raw):
+    """Convert a UTC server timestamp to a human-readable local time string.
+    Handles formats like '2026-04-06 12:00:00+00:00' or '2026-04-06 12:00:00'.
+    Falls back to the raw string if parsing fails."""
+    if not raw:
+        return "Never"
+    try:
+        # Strip timezone suffix variants before parsing.
+        s = str(raw).strip()
+        for suffix in ("+00:00", "+0000", " UTC", "Z"):
+            if s.endswith(suffix):
+                s = s[: -len(suffix)]
+                break
+        # Drop microseconds if present.
+        if "." in s:
+            s = s[: s.index(".")]
+        utc_dt = datetime.datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+        utc_dt = utc_dt.replace(tzinfo=datetime.timezone.utc)
+        local_dt = utc_dt.astimezone()
+        return local_dt.strftime("%b %d, %Y  %I:%M %p")
+    except Exception:
+        return str(raw)
 
 
 def open_settings(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
@@ -170,7 +195,8 @@ def open_settings(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
 
         if api_client.is_logged_in():
             email = api_client.get_account_email() or ""
-            last_synced = api_client.get_last_synced() or "Never"
+            raw_synced = api_client.get_last_synced()
+            last_synced = _fmt_last_synced(raw_synced)
 
             Label(sync_frame, text=email, bg=BG_COLOR, fg=ENTRY_FG,
                   font=FONT).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 2))
@@ -179,32 +205,91 @@ def open_settings(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
                 row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
 
             def do_sync():
-                def run():
-                    data, code = api_client.upload_vault()
-                    def show():
-                        if code == 200:
-                            build_sync_ui()
-                            messagebox.showinfo("Synced", "Vault synced successfully.")
-                        elif code == 409:
-                            answer = messagebox.askyesno(
-                                "Conflict",
-                                "Your vault was updated on another device.\n\n"
-                                "Download the latest version?\n"
-                                "(Your local changes will be replaced.)"
-                            )
-                            if answer:
-                                success, err = api_client.download_vault()
-                                if success:
-                                    build_sync_ui()
-                                    messagebox.showinfo("Synced", "Vault updated. Please restart VaultKit.")
-                                else:
-                                    messagebox.showerror("Sync Failed", err or "Download failed.")
-                        elif code == 0:
-                            messagebox.showerror("Sync Failed", "Could not reach sync server.")
-                        else:
-                            messagebox.showerror("Sync Failed", data.get("error", "Unknown error."))
-                    win.after(0, show)
-                threading.Thread(target=run, daemon=True).start()
+                """Show a direction-picker dialog then execute the chosen operation."""
+                dialog = Toplevel(win)
+                dialog.title("Sync Vault")
+                dialog.config(padx=36, pady=28, bg=BG_COLOR)
+                dialog.resizable(False, False)
+                dialog.grab_set()
+
+                Label(dialog, text="Choose sync direction:",
+                      bg=BG_COLOR, fg=ENTRY_FG, font=FONT_BOLD).pack(pady=(0, 18))
+
+                def _run_upload():
+                    dialog.destroy()
+                    if not messagebox.askyesno(
+                        "Confirm Upload",
+                        "This will overwrite the server copy with your local vault.\n\nContinue?"
+                    ):
+                        return
+                    def run():
+                        data, code = api_client.upload_vault()
+                        def show():
+                            if code == 200:
+                                ts = _fmt_last_synced(api_client.get_last_synced())
+                                build_sync_ui()
+                                messagebox.showinfo("Upload Complete",
+                                                    f"Vault uploaded successfully.\n\nSynced: {ts}")
+                            elif code == 409:
+                                messagebox.showerror("Upload Failed",
+                                    "The server has a newer version.\n\n"
+                                    "Use 'Download from Server' to fetch it first, "
+                                    "then upload your changes.")
+                            elif code == 0:
+                                messagebox.showerror("Upload Failed", "Could not reach sync server.")
+                            else:
+                                messagebox.showerror("Upload Failed",
+                                                     data.get("error", "Unknown error."))
+                        win.after(0, show)
+                    threading.Thread(target=run, daemon=True).start()
+
+                def _run_download():
+                    dialog.destroy()
+                    if not messagebox.askyesno(
+                        "Confirm Download",
+                        "This will replace your local vault with the server copy.\n"
+                        "Any unsynced local changes will be lost.\n\nContinue?"
+                    ):
+                        return
+                    def run():
+                        from vault import load_vault_after_download, get_user_profile
+                        # Save local profile before download overwrites vaultkit.bin.
+                        saved_profile = None
+                        try:
+                            saved_profile = get_user_profile(cipher)
+                        except Exception:
+                            pass
+                        success, err = api_client.download_vault()
+                        def show():
+                            if success:
+                                load_vault_after_download(cipher, saved_profile)
+                                ts = _fmt_last_synced(api_client.get_last_synced())
+                                build_sync_ui()
+                                messagebox.showinfo("Download Complete",
+                                                    f"Vault downloaded successfully.\n\nSynced: {ts}")
+                            else:
+                                messagebox.showerror("Download Failed",
+                                                     err or "Could not download vault.")
+                        win.after(0, show)
+                    threading.Thread(target=run, daemon=True).start()
+
+                def _cancel():
+                    dialog.destroy()
+
+                Button(dialog, text="Upload to Server",
+                       bg=BTN_BG, fg=BTN_FG, relief="flat",
+                       font=FONT_BOLD, cursor="hand2",
+                       command=_run_upload).pack(fill="x", pady=(0, 8), ipady=7)
+
+                Button(dialog, text="Download from Server",
+                       bg=BTN_ACCENT, fg=BTN_FG, relief="flat",
+                       font=FONT_BOLD, cursor="hand2",
+                       command=_run_download).pack(fill="x", pady=(0, 8), ipady=7)
+
+                Button(dialog, text="Cancel",
+                       bg=ENTRY_BG, fg=LABEL_FG, relief="flat",
+                       font=FONT, cursor="hand2",
+                       command=_cancel).pack(fill="x", ipady=5)
 
             def do_logout():
                 if messagebox.askyesno("Sign Out", "Sign out of sync account?\nYour local vault will not be affected."):

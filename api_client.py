@@ -165,6 +165,8 @@ def upload_vault():
 
     config = load_sync_config()
     last_known = config.get("last_known_server_modified")
+    print(f"[upload_vault] last_known_server_modified : {last_known!r}")
+    print(f"[upload_vault] last_synced                : {config.get('last_synced')!r}")
 
     try:
         with open(VAULT_PATH, "rb") as f:

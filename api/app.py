@@ -7,6 +7,7 @@ import models
 from auth import auth_bp, limiter
 from sync import sync_bp
 from account import account_bp
+from admin import admin_bp
 
 app = Flask(__name__)
 
@@ -29,6 +30,7 @@ limiter.init_app(app)
 app.register_blueprint(auth_bp)
 app.register_blueprint(sync_bp)
 app.register_blueprint(account_bp)
+app.register_blueprint(admin_bp)
 
 # Create database tables on startup
 with app.app_context():

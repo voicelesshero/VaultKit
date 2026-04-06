@@ -67,9 +67,15 @@ def open_emergency_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, 
         data["cell_phone"] = profile.get("cell_phone", "")
         data["home_phone"] = profile.get("home_phone", "")
         if not data["full_name"]:
+            present = [k for k, v in profile.items() if v]
+            detail = (f"Fields present: {present}" if present
+                      else "Profile is completely empty.")
+            print(f"[emergency save] profile at save time: {profile}")
             messagebox.showerror(
                 "Profile Incomplete",
-                "Your full name is missing. Please complete your profile first."
+                "Your full name is missing from your profile.\n\n"
+                "Please open Profile and save your name first.\n\n"
+                f"({detail})"
             )
             return
 

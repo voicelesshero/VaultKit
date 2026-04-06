@@ -17,6 +17,21 @@ def _get_current_user():
     return models.get_user_by_email(email)
 
 
+def _norm_ts(value):
+    """Normalize a timestamp string for stable comparison.
+    Strips timezone suffixes and trailing microseconds so that
+    '2026-04-06 12:00:00+00:00' == '2026-04-06 12:00:00.000000+00:00'."""
+    s = str(value or "").strip()
+    for suffix in ("+00:00", "+0000", " UTC", "Z"):
+        if s.endswith(suffix):
+            s = s[: -len(suffix)]
+            break
+    # Drop microseconds — .123456 or .000000 — for stable equality check.
+    if "." in s:
+        s = s[: s.index(".")]
+    return s.strip()
+
+
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -101,12 +116,18 @@ def upload_vault():
     client_last_known = request.form.get("last_known_modified")
     if client_last_known:
         existing = models.get_vault(user["id"])
-        if existing and existing["vault_data"] and str(existing["last_modified"]) != client_last_known:
-            return jsonify({
-                "error": "conflict",
-                "message": "Vault was updated on another device.",
-                "server_last_modified": str(existing["last_modified"])
-            }), 409
+        if existing and existing["vault_data"]:
+            server_ts  = _norm_ts(existing["last_modified"])
+            client_ts  = _norm_ts(client_last_known)
+            print(f"[conflict] server_last_modified : {server_ts!r}")
+            print(f"[conflict] client_last_known    : {client_ts!r}")
+            print(f"[conflict] match                : {server_ts == client_ts}")
+            if server_ts != client_ts:
+                return jsonify({
+                    "error": "conflict",
+                    "message": "Vault was updated on another device.",
+                    "server_last_modified": str(existing["last_modified"])
+                }), 409
 
     checksum = _sha256(vault_data)
     kdf_salt = request.form.get("kdf_salt")

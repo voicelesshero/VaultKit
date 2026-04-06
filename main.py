@@ -13,7 +13,8 @@ from database import make_key
 import api_client
 from vault import (add_entry, get_entry, update_entry, delete_entry,
                    get_all_entries, get_entries_by_type, load_vault,
-                   setup_vault, search_vault, get_current_user, get_user_profile)
+                   load_vault_after_download, setup_vault, search_vault,
+                   get_current_user, get_user_profile)
 from categories import open_category_view
 from session import SessionManager
 from entry_selector import open_entry_selector
@@ -567,6 +568,12 @@ def startup_sync_check():
     if server_modified > last_synced:
         # Server is newer — prompt user on main thread.
         def prompt():
+            # Save local profile before confirming — download will overwrite vaultkit.bin.
+            saved_profile = None
+            try:
+                saved_profile = get_user_profile(cipher)
+            except Exception:
+                pass
             answer = messagebox.askyesno(
                 "Vault Updated",
                 "Your vault was updated on another device.\n\n"
@@ -576,7 +583,7 @@ def startup_sync_check():
             if answer:
                 success, err = api_client.download_vault()
                 if success:
-                    load_vault(cipher)
+                    load_vault_after_download(cipher, saved_profile)
                     messagebox.showinfo("Synced", "Vault updated successfully.")
                 else:
                     messagebox.showerror("Sync Failed", err or "Could not download vault.")

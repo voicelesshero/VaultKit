@@ -59,6 +59,39 @@ def load_vault(cipher):
     """Initialize database on login."""
     initialize_db(cipher)
 
+
+def load_vault_after_download(cipher, saved_profile=None):
+    """Load vault after a server download.
+    If the downloaded vault has no profile data but the local vault did,
+    restore the local profile so the user doesn't lose their data."""
+    initialize_db(cipher)
+
+    if saved_profile is None:
+        return
+
+    # saved_profile is a sqlite3 row tuple: (id, user_id, full_name, dob, phone, email, address)
+    local_has_data = (len(saved_profile) > 2 and
+                      saved_profile[2] is not None and
+                      str(saved_profile[2]).strip() != "")
+    if not local_has_data:
+        return  # Nothing to restore
+
+    downloaded = get_profile(cipher)
+    downloaded_has_data = (downloaded is not None and
+                           downloaded[2] is not None and
+                           str(downloaded[2]).strip() != "")
+    if not downloaded_has_data:
+        user = get_user(cipher)
+        if user:
+            print(f"[load_vault_after_download] Downloaded vault has no profile — restoring local profile for {saved_profile[2]!r}")
+            save_profile(cipher, user[0],
+                         saved_profile[2],   # full_name
+                         saved_profile[3],   # date_of_birth
+                         saved_profile[4],   # phone
+                         saved_profile[5],   # email
+                         saved_profile[6],   # address
+                         )
+
 # ---------------------------- USER / PROFILE ------------------------------- #
 
 def get_current_user(cipher):

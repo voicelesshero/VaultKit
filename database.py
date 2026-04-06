@@ -41,6 +41,10 @@ def decrypt_db(key):
         return False
     with open(ENCRYPTED_DB_PATH, "rb") as f:
         raw = f.read()
+    print(f"[decrypt_db] file size      : {len(raw)} bytes")
+    print(f"[decrypt_db] first 8 bytes  : {raw[:8].hex()}")
+    print(f"[decrypt_db] nonce (12 bytes): {raw[:12].hex()}")
+    print(f"[decrypt_db] key first 8    : {key[:8].hex()}")
     nonce, ciphertext = raw[:12], raw[12:]
     decrypted = AESGCM(key).decrypt(nonce, ciphertext, None)
     with open(DB_PATH, "wb") as f:
@@ -118,6 +122,14 @@ def initialize_db(cipher):
         )
     """)
 
+    # Debug: log profile state so we can diagnose post-download data loss.
+    c.execute("SELECT full_name, email FROM profile LIMIT 1")
+    row = c.fetchone()
+    if row:
+        print(f"[initialize_db] profile: full_name={row[0]!r}  email={row[1]!r}")
+    else:
+        print("[initialize_db] profile: NO ROW FOUND")
+
     conn.commit()
     conn.close()
     encrypt_db(cipher)
@@ -183,8 +195,8 @@ def add_entry(cipher, user_id, entry_type, category, label, fields_dict):
     c = conn.cursor()
 
     c.execute("""
-        INSERT INTO entries (user_id, entry_type, category, label)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO entries (user_id, entry_type, category, label, created_at, updated_at)
+        VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
     """, (user_id, entry_type, category, label))
 
     entry_id = c.lastrowid
