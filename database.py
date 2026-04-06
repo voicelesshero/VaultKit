@@ -121,6 +121,10 @@ def initialize_db(cipher):
             FOREIGN KEY (entry_id) REFERENCES entries(id)
         )
     """)
+    c.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_fields_entry_field
+        ON fields(entry_id, field_name)
+    """)
 
     # Debug: log profile state so we can diagnose post-download data loss.
     c.execute("SELECT full_name, email FROM profile LIMIT 1")
