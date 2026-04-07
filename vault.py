@@ -173,6 +173,19 @@ def get_entry(cipher, label):
     print(f"[get_entry] all entries for user_id={user_id}: {[(r[0], r[1], r[2]) for r in all_rows]}")
     c.execute("SELECT id FROM entries WHERE user_id=? AND label=?", (user_id, label))
     row = c.fetchone()
+
+    # Fallback: if searching for the emergency entry by label="emergency" misses
+    # (mobile stored it with label=full_name), find it by entry_type instead.
+    if not row and label == "emergency":
+        print(f"[get_entry] label='emergency' not found — falling back to entry_type='emergency'")
+        c.execute(
+            "SELECT id FROM entries WHERE user_id=? AND entry_type='emergency' ORDER BY id ASC",
+            (user_id,)
+        )
+        row = c.fetchone()
+        if row:
+            print(f"[get_entry] fallback found emergency entry id={row[0]}")
+
     conn.close()
     encrypt_db(cipher)
 

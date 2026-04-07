@@ -32,6 +32,12 @@ def open_emergency_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG, 
 
     entries = {}
     existing = get_entry(cipher, "emergency")
+    if existing is None:
+        print("[emergency_form] get_entry returned None — form will open empty")
+    else:
+        print(f"[emergency_form] get_entry returned entry with keys: {list(existing.keys())}")
+        for k, v in existing.items():
+            print(f"[emergency_form]   {k} = {v!r}")
 
     for i, (label, key) in enumerate(fields):
         Label(form, text=f"{label}:", bg=BG_COLOR, fg=LABEL_FG, font=FONT).grid(
