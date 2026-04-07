@@ -1,6 +1,7 @@
 import requests
 import json
 import os
+import sys
 import hashlib
 import threading
 
@@ -8,9 +9,20 @@ import threading
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
+
+def _app_dir():
+    """Return the directory containing the exe (packed) or the script (source).
+    Ensures sync_config.json, vaultkit.bin, and master.json are always
+    created and read from the same location regardless of working directory."""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 API_BASE_URL = "https://vaultkit-production.up.railway.app"
-SYNC_CONFIG_PATH = "sync_config.json"
-VAULT_PATH = "vaultkit.bin"
+SYNC_CONFIG_PATH = os.path.join(_app_dir(), "sync_config.json")
+VAULT_PATH = os.path.join(_app_dir(), "vaultkit.bin")
+MASTER_JSON_PATH = os.path.join(_app_dir(), "master.json")
 
 
 # ---------------------------- SYNC CONFIG ------------------------------- #
@@ -177,7 +189,7 @@ def upload_vault():
             data["last_known_modified"] = last_known
         # Include kdf_salt so new devices can derive the correct key.
         try:
-            with open("master.json") as f:
+            with open(MASTER_JSON_PATH) as f:
                 data["kdf_salt"] = json.load(f).get("kdf_salt", "")
         except FileNotFoundError:
             pass
@@ -246,10 +258,9 @@ def force_upload_after_rekey():
     try:
         with open(VAULT_PATH, "rb") as f:
             vault_data = f.read()
-        files = {"vault": ("vaultkit.bin", vault_data, "application/octet-stream")}
         data = {}
         try:
-            with open("master.json") as f:
+            with open(MASTER_JSON_PATH) as f:
                 data["kdf_salt"] = json.load(f).get("kdf_salt", "")
         except FileNotFoundError:
             pass
