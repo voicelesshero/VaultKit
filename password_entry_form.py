@@ -151,7 +151,7 @@ def open_password_form(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
                                              "category": category})
         else:
             add_entry(cipher, "password", website,
-                      {"email": email, "password": password, "category": category})
+                      {"website": website, "email": email, "password": password, "category": category})
 
         messagebox.showinfo("Saved", f"Password for {website} saved.")
         form.destroy()
