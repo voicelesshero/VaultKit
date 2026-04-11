@@ -32,6 +32,21 @@ def _set_sync_refresh(fn):
     global sync_refresh_callback
     sync_refresh_callback = fn
 
+
+# ---------------------------- PATH HELPERS ------------------------------- #
+
+def _app_dir():
+    """Return the directory containing the exe (packed) or the script (source).
+    Ensures all data files are always created and read from the same location
+    regardless of the working directory the app is launched from."""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+MASTER_JSON_PATH = os.path.join(_app_dir(), "master.json")
+VAULT_BIN_PATH   = os.path.join(_app_dir(), "vaultkit.bin")
+
+
 def resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
@@ -62,6 +77,64 @@ def verify_password(stored_hash, entered_password):
     except VerifyMismatchError:
         return False
 
+# ------------------------------------------------------------------ #
+# Salt-mismatch handler                                               #
+# ------------------------------------------------------------------ #
+
+def _handle_salt_mismatch(server_kdf_salt):
+    """Called when the server kdf_salt differs from master.json.
+
+    Means the master password was changed on another device.
+    Prompts the user for the new password, derives a new key,
+    verifies it can open the vault (sentinel check via load_vault),
+    then updates master.json and cipher.
+
+    Returns the new cipher key on success, or None if the user
+    cancels or enters a wrong password (allows retry from caller).
+    """
+    global cipher
+
+    messagebox.showinfo(
+        "Password Changed",
+        "Your master password was changed on another device.\n\n"
+        "Please enter your new master password to continue."
+    )
+
+    for attempt in range(3):
+        entered = simpledialog.askstring(
+            "New Master Password",
+            "Enter your new master password:" if attempt == 0
+            else f"Incorrect password. Try again ({attempt + 1}/3):",
+            show="*"
+        )
+        if entered is None:
+            return None  # user cancelled
+
+        new_salt = bytes.fromhex(server_kdf_salt)
+        new_cipher = make_key(entered, new_salt)
+
+        # Verify: try to open the vault with the new key.
+        try:
+            load_vault(new_cipher)
+            # Success — persist the updated credentials.
+            with open(MASTER_JSON_PATH, "w") as f:
+                json.dump({
+                    "master": hash_password(entered),
+                    "kdf_salt": server_kdf_salt
+                }, f)
+            cipher = new_cipher
+            return new_cipher
+        except Exception:
+            pass  # wrong password — loop again
+
+    messagebox.showerror(
+        "Too Many Attempts",
+        "Could not verify new master password after 3 attempts.\n"
+        "Please restart VaultKit and try again."
+    )
+    return None
+
+
 def check_master_password():
     """Entry point for first-run and login routing.
 
@@ -71,8 +144,8 @@ def check_master_password():
         sync_config.json present   → restore from sync (token + kdf_salt already saved)
       nothing exists               → welcome dialog (create / sign-in / offline)
     """
-    has_master = os.path.exists("master.json")
-    has_sync   = os.path.exists("sync_config.json")
+    has_master = os.path.exists(MASTER_JSON_PATH)
+    has_sync   = os.path.exists(api_client.SYNC_CONFIG_PATH)
 
     if has_master:
         return _do_login()
@@ -87,7 +160,7 @@ def check_master_password():
 # ------------------------------------------------------------------ #
 def _do_login():
     global cipher
-    with open("master.json", "r") as f:
+    with open(MASTER_JSON_PATH, "r") as f:
         stored = json.load(f)
 
     entered = simpledialog.askstring("VaultKit", "Enter master password:", show="*")
@@ -103,17 +176,30 @@ def _do_login():
     salt = bytes.fromhex(stored["kdf_salt"])
     cipher = make_key(entered, salt)
 
-    # If the vault file is missing but the user has a sync account, download now.
-    if not os.path.exists("vaultkit.bin") and api_client.is_logged_in():
+    # Check whether the master password was changed on another device.
+    if api_client.is_logged_in():
         status, code = api_client.get_vault_status()
-        if code == 200 and status and status.get("has_vault"):
-            success, err = api_client.download_vault()
-            if not success:
-                messagebox.showwarning(
-                    "Sync",
-                    f"Could not download vault from server: {err}\n\n"
-                    "Opening with empty vault. You can sync manually from Settings."
-                )
+        if code == 200 and status:
+            server_salt = status.get("kdf_salt")
+            local_salt  = stored.get("kdf_salt")
+            if server_salt and local_salt and server_salt != local_salt:
+                new_cipher = _handle_salt_mismatch(server_salt)
+                if new_cipher is None:
+                    window.destroy()
+                    return False
+                # cipher and master.json already updated inside the helper.
+                load_vault(cipher)
+                return True
+
+            # If the vault file is missing, download now.
+            if not os.path.exists(VAULT_BIN_PATH) and status.get("has_vault"):
+                success, err = api_client.download_vault()
+                if not success:
+                    messagebox.showwarning(
+                        "Sync",
+                        f"Could not download vault from server: {err}\n\n"
+                        "Opening with empty vault. You can sync manually from Settings."
+                    )
 
     load_vault(cipher)
     return True
@@ -164,7 +250,7 @@ def _do_restore_from_sync():
         window.destroy()
         return False
 
-    with open("master.json", "w") as f:
+    with open(MASTER_JSON_PATH, "w") as f:
         json.dump({"master": hash_password(entered), "kdf_salt": server_kdf_salt}, f)
 
     load_vault(cipher)
@@ -262,7 +348,7 @@ def _do_sign_in_to_account():
             window.destroy()
             return
 
-        with open("master.json", "w") as f:
+        with open(MASTER_JSON_PATH, "w") as f:
             json.dump({"master": hash_password(entered), "kdf_salt": server_kdf_salt}, f)
 
         load_vault(cipher)
@@ -346,7 +432,7 @@ def _do_create_new_vault():
         return False
 
     kdf_salt = os.urandom(16)
-    with open("master.json", "w") as f:
+    with open(MASTER_JSON_PATH, "w") as f:
         json.dump({"master": hash_password(new_pass), "kdf_salt": kdf_salt.hex()}, f)
 
     cipher = make_key(new_pass, kdf_salt)
@@ -365,7 +451,7 @@ def update_cipher(new_key):
 
 def verify_master(entered):
     try:
-        with open("master.json", "r") as f:
+        with open(MASTER_JSON_PATH, "r") as f:
             stored = json.load(f)
         return verify_password(stored["master"], entered)
     except FileNotFoundError:
@@ -562,6 +648,18 @@ def startup_sync_check():
         api_client.upload_vault()
         return
 
+    # Detect master password change on another device.
+    server_salt = status.get("kdf_salt")
+    if server_salt:
+        try:
+            with open(MASTER_JSON_PATH) as f:
+                local_salt = json.load(f).get("kdf_salt")
+        except (FileNotFoundError, json.JSONDecodeError):
+            local_salt = None
+        if local_salt and server_salt != local_salt:
+            window.after(0, lambda: _handle_salt_mismatch(server_salt))
+            return  # don't proceed with stale cipher
+
     server_modified = _ts(status.get("last_modified"))
     last_synced = _ts(api_client.get_last_synced())
 
@@ -589,11 +687,11 @@ def startup_sync_check():
                     messagebox.showerror("Sync Failed", err or "Could not download vault.")
         window.after(0, prompt)
 
-    elif os.path.exists("vaultkit.bin"):
+    elif os.path.exists(VAULT_BIN_PATH):
         # Check if local vault was modified after the last sync.
         local_mtime = _ts(
             datetime.datetime.fromtimestamp(
-                os.path.getmtime("vaultkit.bin"), datetime.UTC
+                os.path.getmtime(VAULT_BIN_PATH), datetime.UTC
             ).strftime("%Y-%m-%d %H:%M:%S")
         )
         if local_mtime > last_synced:
@@ -652,7 +750,8 @@ settings_btn = Button(header_frame, text="⚙", bg=BG_COLOR, fg=LABEL_FG, relief
                                                     ENTRY_FG, LABEL_FG, BTN_BG, BTN_FG,
                                                     BTN_ACCENT, FONT, FONT_BOLD,
                                                     on_rekey=update_cipher,
-                                                    on_sync_refresh=lambda fn: _set_sync_refresh(fn)))
+                                                    on_sync_refresh=lambda fn: _set_sync_refresh(fn),
+                                                    on_salt_mismatch=_handle_salt_mismatch))
 settings_btn.pack(side="right")
 
 # ---------------------------- SEARCH BAR ------------------------------- #

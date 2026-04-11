@@ -41,7 +41,7 @@ def _fmt_last_synced(raw):
 
 def open_settings(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
                   BTN_BG, BTN_FG, BTN_ACCENT, FONT, FONT_BOLD, on_rekey=None,
-                  on_sync_refresh=None):
+                  on_sync_refresh=None, on_salt_mismatch=None):
 
     win = Toplevel(window)
     win.title("Settings")
@@ -252,7 +252,24 @@ def open_settings(window, cipher, BG_COLOR, ENTRY_BG, ENTRY_FG, LABEL_FG,
                     ):
                         return
                     def run():
+                        import json
                         from vault import load_vault_after_download, get_user_profile
+                        # Check for salt mismatch before downloading — the master
+                        # password may have been changed on another device.
+                        status, scode = api_client.get_vault_status()
+                        if scode == 200 and status:
+                            server_salt = status.get("kdf_salt")
+                            local_salt = None
+                            try:
+                                with open(api_client.MASTER_JSON_PATH) as f:
+                                    local_salt = json.load(f).get("kdf_salt")
+                            except (FileNotFoundError, json.JSONDecodeError):
+                                pass
+                            if server_salt and local_salt and server_salt != local_salt:
+                                if on_salt_mismatch:
+                                    win.after(0, lambda: on_salt_mismatch(server_salt))
+                                return  # can't decrypt with stale cipher
+
                         # Save local profile before download overwrites vaultkit.bin.
                         saved_profile = None
                         try:
