@@ -249,6 +249,28 @@ def download_vault():
         return False, "Could not reach sync server."
 
 
+def download_vault_bytes():
+    """Download vault blob from server and return raw bytes WITHOUT writing to disk.
+    Used for in-memory key verification before committing a new vault file.
+    Returns (bytes, error_message). bytes is None on failure."""
+    try:
+        r = _with_token_refresh(
+            lambda: requests.get(f"{API_BASE_URL}/vault",
+                                 headers=_auth_headers(), timeout=30)
+        )
+        if r.status_code == 200:
+            vault_bytes = r.content
+            expected_checksum = r.headers.get("X-Vault-Checksum")
+            if expected_checksum:
+                actual_checksum = _sha256(vault_bytes)
+                if actual_checksum != expected_checksum:
+                    return None, "Vault download corrupted — checksum mismatch."
+            return vault_bytes, None
+        return None, r.json().get("error", "Download failed.")
+    except requests.exceptions.ConnectionError:
+        return None, "Could not reach sync server."
+
+
 def force_upload_after_rekey():
     """Upload vault unconditionally after a master password change.
     Skips the last_known_modified conflict field so it always overwrites
