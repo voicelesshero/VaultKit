@@ -180,13 +180,8 @@ def check_master_password():
         sync_config.json present   → restore from sync (token + kdf_salt already saved)
       nothing exists               → welcome dialog (create / sign-in / offline)
     """
-    print(f"[DEBUG] check_master_password called")
-    print(f"[DEBUG] MASTER_JSON_PATH : {MASTER_JSON_PATH}")
-    print(f"[DEBUG] SYNC_CONFIG_PATH : {api_client.SYNC_CONFIG_PATH}")
     has_master = os.path.exists(MASTER_JSON_PATH)
     has_sync   = os.path.exists(api_client.SYNC_CONFIG_PATH)
-    print(f"[DEBUG] has_master: {has_master}")
-    print(f"[DEBUG] has_sync  : {has_sync}")
 
     if has_master:
         return _do_login()
@@ -200,21 +195,16 @@ def check_master_password():
 # Login — master.json exists                                          #
 # ------------------------------------------------------------------ #
 def _do_login():
-    print("[DEBUG] _do_login() entered")
     global cipher
     with open(MASTER_JSON_PATH, "r") as f:
         stored = json.load(f)
-    print(f"[DEBUG] master.json loaded, keys: {list(stored.keys())}")
 
     entered = simpledialog.askstring("VaultKit", "Enter master password:", show="*")
-    print(f"[DEBUG] password entered: {entered is not None}")
     if entered is None:
         window.destroy()
         return False
 
-    verify_result = verify_password(stored["master"], entered)
-    print(f"[DEBUG] verify_password result: {verify_result}")
-    if not verify_result:
+    if not verify_password(stored["master"], entered):
         # Before failing, check if the password was changed on another device.
         # If server salt differs from local salt, the entered password may be
         # the new one — try it against the server vault before giving up.
@@ -223,9 +213,7 @@ def _do_login():
             if code == 200 and status:
                 server_salt = status.get("kdf_salt")
                 local_salt  = stored.get("kdf_salt")
-                print(f"[DEBUG] verify failed — local_salt={local_salt!r} server_salt={server_salt!r}")
                 if server_salt and local_salt and server_salt != local_salt:
-                    print("[DEBUG] salt mismatch detected on verify failure — attempting recovery")
                     new_cipher = _handle_salt_mismatch(server_salt, first_attempt=entered)
                     if new_cipher is not None:
                         return True
@@ -235,24 +223,16 @@ def _do_login():
         window.destroy()
         return False
 
-    print("[DEBUG] password verified — deriving cipher key")
     salt = bytes.fromhex(stored["kdf_salt"])
     cipher = make_key(entered, salt)
-    print("[DEBUG] cipher key derived successfully")
 
     # Check whether the master password was changed on another device.
-    print(f"[_do_login] is_logged_in: {api_client.is_logged_in()}")
     if api_client.is_logged_in():
         status, code = api_client.get_vault_status()
-        print(f"[_do_login] vault/status code   : {code}")
         if code == 200 and status:
             server_salt = status.get("kdf_salt")
             local_salt  = stored.get("kdf_salt")
-            print(f"[_do_login] local  kdf_salt     : {local_salt!r}")
-            print(f"[_do_login] server kdf_salt     : {server_salt!r}")
-            print(f"[_do_login] salts match         : {server_salt == local_salt}")
             if server_salt and local_salt and server_salt != local_salt:
-                print("[_do_login] MISMATCH — calling _handle_salt_mismatch")
                 new_cipher = _handle_salt_mismatch(server_salt)
                 if new_cipher is None:
                     window.destroy()
