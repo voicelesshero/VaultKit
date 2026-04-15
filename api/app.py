@@ -8,6 +8,7 @@ from auth import auth_bp, limiter
 from sync import sync_bp
 from account import account_bp
 from admin import admin_bp
+from emergency import emergency_bp
 
 app = Flask(__name__)
 
@@ -31,6 +32,7 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(sync_bp)
 app.register_blueprint(account_bp)
 app.register_blueprint(admin_bp)
+app.register_blueprint(emergency_bp)
 
 # Create database tables on startup
 with app.app_context():

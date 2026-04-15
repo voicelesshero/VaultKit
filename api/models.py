@@ -1,4 +1,5 @@
 import sqlite3
+import uuid
 from config import DATABASE_URL, SERVER_DB_PATH
 
 # When DATABASE_URL is set (Railway production), use PostgreSQL.
@@ -72,6 +73,29 @@ def init_db():
         # exist, so this never aborts the transaction on redeploy.
         c.execute("ALTER TABLE vaults ADD COLUMN IF NOT EXISTS checksum TEXT")
         c.execute("ALTER TABLE vaults ADD COLUMN IF NOT EXISTS kdf_salt TEXT")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS emergency_shares (
+                id                      TEXT        PRIMARY KEY,
+                user_id                 INTEGER     NOT NULL UNIQUE,
+                full_name               TEXT,
+                blood_type              TEXT,
+                allergies               TEXT,
+                medications             TEXT,
+                medical_conditions      TEXT,
+                emergency_contact       TEXT,
+                emergency_contact_phone TEXT,
+                primary_doctor          TEXT,
+                doctor_phone            TEXT,
+                hospital_preference     TEXT,
+                insurance_provider      TEXT,
+                policy_number           TEXT,
+                critical_info           TEXT        DEFAULT '',
+                created_at              TIMESTAMPTZ DEFAULT NOW(),
+                updated_at              TIMESTAMPTZ DEFAULT NOW(),
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        c.execute("ALTER TABLE emergency_shares ADD COLUMN IF NOT EXISTS critical_info TEXT DEFAULT ''")
     else:
         c.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -99,6 +123,33 @@ def init_db():
                 c.execute(f"ALTER TABLE vaults ADD COLUMN {col}")
             except Exception:
                 pass
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS emergency_shares (
+                id                      TEXT    PRIMARY KEY,
+                user_id                 INTEGER NOT NULL UNIQUE,
+                full_name               TEXT,
+                blood_type              TEXT,
+                allergies               TEXT,
+                medications             TEXT,
+                medical_conditions      TEXT,
+                emergency_contact       TEXT,
+                emergency_contact_phone TEXT,
+                primary_doctor          TEXT,
+                doctor_phone            TEXT,
+                hospital_preference     TEXT,
+                insurance_provider      TEXT,
+                policy_number           TEXT,
+                critical_info           TEXT    DEFAULT '',
+                created_at              TEXT    DEFAULT (datetime('now')),
+                updated_at              TEXT    DEFAULT (datetime('now')),
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        # Migrate existing SQLite databases that predate this column.
+        try:
+            c.execute("ALTER TABLE emergency_shares ADD COLUMN critical_info TEXT DEFAULT ''")
+        except Exception:
+            pass
 
     conn.commit()
     conn.close()
@@ -193,5 +244,67 @@ def save_vault(user_id, vault_data, checksum, kdf_salt=None):
         """,
         (vault_data, len(vault_data), checksum, kdf_salt, user_id)
     )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------- EMERGENCY SHARE HELPERS ------------------------------- #
+
+_SHARE_FIELDS = [
+    "full_name", "blood_type", "allergies", "medications",
+    "medical_conditions", "emergency_contact", "emergency_contact_phone",
+    "primary_doctor", "doctor_phone", "hospital_preference",
+    "insurance_provider", "policy_number", "critical_info",
+]
+
+
+def upsert_emergency_share(user_id, fields):
+    """Create or update the emergency share row for user_id.
+    Returns the share_id UUID string."""
+    conn = get_db()
+    c = _cursor(conn)
+
+    c.execute(f"SELECT id FROM emergency_shares WHERE user_id = {P}", (user_id,))
+    row = c.fetchone()
+
+    vals = tuple(fields.get(f) or "" for f in _SHARE_FIELDS)
+
+    if row:
+        share_id = dict(row)["id"]
+        set_clause = ", ".join(f"{f} = {P}" for f in _SHARE_FIELDS)
+        updated = "NOW()" if USE_POSTGRES else "datetime('now')"
+        c.execute(
+            f"UPDATE emergency_shares SET {set_clause}, updated_at = {updated} WHERE user_id = {P}",
+            vals + (user_id,),
+        )
+    else:
+        share_id = str(uuid.uuid4())
+        cols = ", ".join(["id", "user_id"] + _SHARE_FIELDS)
+        placeholders = ", ".join([P] * (2 + len(_SHARE_FIELDS)))
+        c.execute(
+            f"INSERT INTO emergency_shares ({cols}) VALUES ({placeholders})",
+            (share_id, user_id) + vals,
+        )
+
+    conn.commit()
+    conn.close()
+    return share_id
+
+
+def get_emergency_share(share_id):
+    """Return the emergency share row for share_id, or None if not found."""
+    conn = get_db()
+    c = _cursor(conn)
+    c.execute(f"SELECT * FROM emergency_shares WHERE id = {P}", (share_id,))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def delete_emergency_share(user_id):
+    """Delete the emergency share row for user_id."""
+    conn = get_db()
+    c = _cursor(conn)
+    c.execute(f"DELETE FROM emergency_shares WHERE user_id = {P}", (user_id,))
     conn.commit()
     conn.close()
